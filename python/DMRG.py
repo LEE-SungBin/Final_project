@@ -6,7 +6,7 @@ from python.Decomposition import SVD, EIGH, QR
 # from python.Gauging import *
 from python.initialization import random_initialization, Iterative_diagonalization
 from python.utils import round_sig
-from python.Zippers import MPS_MPO_MPS_overlap
+from python.Zippers import MPS_MPO_MPS_overlap, MPS_MPS_overlap
 import time
 
 from copy import deepcopy
@@ -20,6 +20,7 @@ def DMRG(
      two_site: bool = True,
      Krylov_bases: int = 5,
      Lanczos_cutoff: float = 1e-4,
+     orthogonal_to_list_of_MPS: list[list[npt.NDArray]] | None = None,
      verbose: bool = False,
 ) -> tuple[npt.NDArray, npt.NDArray, list]:
 
@@ -107,6 +108,7 @@ def DMRG(
                     NKeep = NKeep,
                     Krylov_bases = Krylov_bases,
                     Lanczos_cutoff = Lanczos_cutoff,
+                    orthogonal_to_list_of_MPS = orthogonal_to_list_of_MPS,
                )
           
           else:
@@ -117,6 +119,7 @@ def DMRG(
                     contract_list_right = contract_list_right,
                     Krylov_bases = Krylov_bases,
                     Lanczos_cutoff = Lanczos_cutoff,
+                    orthogonal_to_list_of_MPS = orthogonal_to_list_of_MPS,
                )
           
           total_energies.extend(energies)
@@ -141,6 +144,7 @@ def sweep_with_single_site_update(
      contract_list_right: list[npt.NDArray],
      Krylov_bases: int = 5,
      Lanczos_cutoff: float = 1e-4,
+     orthogonal_to_list_of_MPS: list[list[npt.NDArray]] | None = None,
 ) -> tuple[float, list[npt.NDArray]]:
      
      n_sites = len(Hamiltonian)
@@ -159,6 +163,22 @@ def sweep_with_single_site_update(
           
           initial_vector = deepcopy(MPS[orthogonality_center])
           
+          constraints = None
+          
+          if orthogonal_to_list_of_MPS is not None:
+               
+               constraints = []
+               
+               for orthogonal_MPS in orthogonal_to_list_of_MPS:
+                    MPS_without_orthogonality_center = deepcopy(MPS)
+                    MPS_without_orthogonality_center[orthogonality_center] = None
+                    
+                    constraint_mps = MPS_MPS_overlap(
+                         orthogonal_MPS, MPS_without_orthogonality_center
+                    )
+                    
+                    constraints.append(constraint_mps)
+          
           contract_left = deepcopy(contract_list_left[left_loc])
           contract_center = deepcopy(Hamiltonian[orthogonality_center])
           contract_right = deepcopy(contract_list_right[right_loc])
@@ -170,6 +190,7 @@ def sweep_with_single_site_update(
                contract_right = contract_right,
                Krylov_bases = Krylov_bases,
                Lanczos_cutoff = Lanczos_cutoff,
+               constraints = constraints,
           )
           
           energy, vector = get_eigen_vector_from_lanczos(
@@ -220,6 +241,22 @@ def sweep_with_single_site_update(
           
           initial_vector = deepcopy(MPS[orthogonality_center])
           
+          constraints = None
+          
+          if orthogonal_to_list_of_MPS is not None:
+               
+               constraints = []
+               
+               for orthogonal_MPS in orthogonal_to_list_of_MPS:
+                    MPS_without_orthogonality_center = deepcopy(MPS)
+                    MPS_without_orthogonality_center[orthogonality_center] = None
+                    
+                    constraint_mps = MPS_MPS_overlap(
+                         orthogonal_MPS, MPS_without_orthogonality_center
+                    )
+                    
+                    constraints.append(constraint_mps)
+          
           contract_left = deepcopy(contract_list_left[left_loc])
           contract_center = deepcopy(Hamiltonian[orthogonality_center])
           contract_right = deepcopy(contract_list_right[right_loc])
@@ -231,6 +268,7 @@ def sweep_with_single_site_update(
                contract_right = contract_right,
                Krylov_bases = Krylov_bases,
                Lanczos_cutoff = Lanczos_cutoff,
+               constraints = constraints,
           )
           
           energy, vector = get_eigen_vector_from_lanczos(
@@ -309,6 +347,7 @@ def lanczos_for_single_site(
      contract_right: npt.NDArray,
      Krylov_bases: int = 5,
      Lanczos_cutoff: float = 1e-4,
+     constraints: list[npt.NDArray] | None = None,
 ) -> tuple[npt.NDArray, npt.NDArray, list[npt.NDArray]]:
      
      left_isometries = []
@@ -319,12 +358,15 @@ def lanczos_for_single_site(
      Iteration 1
      """
      
+     if constraints is not None:
+          for constraint in constraints:
+               left_isometries.append(constraint / np.linalg.norm(constraint))
+     
      vector = deepcopy(initial_vector)
      norm = np.linalg.norm(vector)
      vector = vector / norm
      
-     # print(f"{np.linalg.norm(vector)=}")
-     
+     vector = orthogonalize(vector, left_isometries, two_site=True)     
      left_isometries.append(vector)
      
      omega = matrix_vector_multi_for_single_site(
@@ -367,6 +409,10 @@ def lanczos_for_single_site(
      
      alphas = np.array(alphas)
      betas = np.array(betas)
+     
+     if constraints is not None:
+          for _ in range(len(constraints)):
+               left_isometries.pop(0)
      
      return alphas, betas, left_isometries
 
@@ -439,6 +485,7 @@ def sweep_with_two_site_update(
      NKeep: int,
      Krylov_bases: int = 5,
      Lanczos_cutoff: float = 1e-4,
+     orthogonal_to_list_of_MPS: list[list[npt.NDArray]] | None = None,
 ) -> tuple[float, list[npt.NDArray]]:
      
      n_sites = len(Hamiltonian)
@@ -458,6 +505,24 @@ def sweep_with_two_site_update(
           initial_vector1 = deepcopy(MPS[orthogonality_center-1])
           initial_vector2 = deepcopy(MPS[orthogonality_center])
           
+          constraints = None
+          
+          if orthogonal_to_list_of_MPS is not None:
+               
+               constraints = []
+               
+               for orthogonal_MPS in orthogonal_to_list_of_MPS:
+                    MPS_without_orthogonality_center = deepcopy(MPS)
+                    
+                    MPS_without_orthogonality_center[orthogonality_center-1] = None
+                    MPS_without_orthogonality_center[orthogonality_center] = None
+                    
+                    constraint_mps = MPS_MPS_overlap(
+                         orthogonal_MPS, MPS_without_orthogonality_center
+                    )
+                    
+                    constraints.append(constraint_mps)
+          
           initial_vector = Contract("iak,ajl->ijkl", initial_vector1, initial_vector2)
           
           contract_left = deepcopy(contract_list_left[left_loc])
@@ -473,6 +538,7 @@ def sweep_with_two_site_update(
                contract_right = contract_right,
                Krylov_bases = Krylov_bases,
                Lanczos_cutoff = Lanczos_cutoff,
+               constraints = constraints,
           )
           
           energy, vector = get_eigen_vector_from_lanczos(
@@ -531,6 +597,24 @@ def sweep_with_two_site_update(
           contract_center2 = deepcopy(Hamiltonian[orthogonality_center+1])
           contract_right = deepcopy(contract_list_right[right_loc])
           
+          constraints = None
+          
+          if orthogonal_to_list_of_MPS is not None:
+               
+               constraints = []
+               
+               for orthogonal_MPS in orthogonal_to_list_of_MPS:
+                    MPS_without_orthogonality_center = deepcopy(MPS)
+                    
+                    MPS_without_orthogonality_center[orthogonality_center] = None
+                    MPS_without_orthogonality_center[orthogonality_center + 1] = None
+                    
+                    constraint_mps = MPS_MPS_overlap(
+                         orthogonal_MPS, MPS_without_orthogonality_center
+                    )
+                    
+                    constraints.append(constraint_mps)
+          
           alphas, betas, left_isometries = lanczos_for_two_site(
                initial_vector = initial_vector,
                contract_left = contract_left,
@@ -539,6 +623,7 @@ def sweep_with_two_site_update(
                contract_right = contract_right,
                Krylov_bases = Krylov_bases,
                Lanczos_cutoff = Lanczos_cutoff,
+               constraints = constraints,
           )
           
           energy, vector = get_eigen_vector_from_lanczos(
@@ -590,17 +675,26 @@ def lanczos_for_two_site(
      contract_right: npt.NDArray,
      Krylov_bases: int = 5,
      Lanczos_cutoff: float = 1e-8,
+     constraints: list[npt.NDArray] | None = None,
 ) -> tuple[npt.NDArray, npt.NDArray, list[npt.NDArray]]:
      
      left_isometries = []
      alphas = []
      betas = []
      
+     if constraints is not None:
+          for constraint in constraints:
+               left_isometries.append(constraint / np.linalg.norm(constraint))
+
      """
      Iteration 1
-     """
+     """     
      
      vector = deepcopy(initial_vector)
+     norm = np.linalg.norm(vector)
+     vector = vector / norm
+     
+     vector = orthogonalize(vector, left_isometries, two_site=True)
      left_isometries.append(vector)
      
      omega = matrix_vector_multi_for_two_site(
@@ -645,6 +739,10 @@ def lanczos_for_two_site(
      
      alphas = np.array(alphas)
      betas = np.array(betas)
+     
+     if constraints is not None:
+          for _ in range(len(constraints)):
+               left_isometries.pop(0)
      
      return alphas, betas, left_isometries
 
