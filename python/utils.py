@@ -370,4 +370,3 @@ def int_to_n_digit_binary(numbers, n=None):
     else:
         return [convert_to_binary_array(int(numbers), n)]
 
-

@@ -12,6 +12,21 @@ import time
 from copy import deepcopy
 
 
+def get_multi_excited_state(
+     Hamiltonian: list[npt.NDArray],
+     NKeep: int,
+     NSweep: int,
+     iterative_diag: bool = True,
+     two_site: bool = True,
+     Krylov_bases: int = 5,
+     Lanczos_cutoff: float = 1e-4,
+     num_excited_state: int = 0,
+     verbose: bool = False,
+):
+     
+     return 0
+
+
 def DMRG(
      Hamiltonian: list[npt.NDArray],
      NKeep: int,

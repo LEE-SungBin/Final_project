@@ -6,6 +6,7 @@ from copy import deepcopy
 from python.Decomposition import *
 from python.Contract import *
 from python.Zippers import MPS_MPS_overlap
+from python.utils import get_entropy
 
 
 def site_canonical_MPS(
@@ -195,6 +196,36 @@ def dist_from_vidal_mps(
         return dists
     else:
         return distance / 2 / length
+
+
+def get_Neumann_entropy(
+    MPS: list[npt.NDArray]
+) -> npt.NDArray:
+    
+    """
+    Get Neumann entropy of MPS
+    
+    return np.array([entropy at 1, entropy at site 2, ..., entropy at site L-1])
+    
+    """
+    
+    Neumann_entropy = []
+    
+    for it in range(len(MPS)-1):
+        site_canonical = site_canonical_MPS(MPS, loc=it)
+        _, _, sigma = site_to_bond_canonical_MPS(
+            orthogonality_center=site_canonical[it],
+            isometry=site_canonical[it+1],
+            dirc = "right",
+        )
+        
+        # print(f"{sigma=}")
+        
+        Neumann_entropy.append(get_entropy(sigma))
+
+    Neumann_entropy = np.array(Neumann_entropy)
+    
+    return Neumann_entropy
 
 
 def left_gauge(gamma, Lambda):
