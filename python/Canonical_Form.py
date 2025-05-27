@@ -140,10 +140,6 @@ def Gamma_Lambda_MPS(
     if verbose:
         print(f"Canonical form finished")
     
-    # right_can = site_canonical_MPS(MPS, loc=0, Dcut=Dcut)
-    
-    # assert right_isometry(right_can[0]) < 1.e-6, f"right canonical error, {right_isometry(right_can[0])=}"
-    
     left_prod = bk.identity(right_can[0].shape[0])
     for it in range(len_MPS):
         if verbose:
@@ -153,14 +149,10 @@ def Gamma_Lambda_MPS(
             -1, tensor.shape[1])
 
         U, S, Vh = SVD(matrix, Skeep=1.e-8, Nkeep=Dcut)
-        # U, S, Vh = SVD(matrix, Skeep=1.e-8)
         
         if it < len_MPS-1:
             Lambdas[it][1] = S
             Lambdas[it+1][0] = S
-        # if it == len_MPS-1:
-        #     assert len(S.shape) == 1, f"{S=} != [1.0]"
-        #     assert np.allclose(S, np.identity(1)), f"{S=} != [1.0]"
         
         left_prod = bk.diag(S) @ Vh
         
@@ -189,21 +181,15 @@ def dist_from_vidal_mps(
     dists = [0.0 for _ in range(length)]
     
     for it, gamma in enumerate(Gammas):
-        # print(f"\n{it}", end=" ")
-        
         approx = left_gauge(gamma, Lambdas[it][0], bk)
         left = scale_inv_id(approx, bk)
         
-        # print(f"left: {round_sig(left)}", end=" ")
-        # print(f"\n{round_sig(approx)}")
         distance += left
         dists[it] += left / 2
         
         approx = right_gauge(gamma, Lambdas[it][1], bk)
         right = scale_inv_id(approx, bk)
         
-        # print(f"right: {round_sig(right)}", end=" ")
-        # print(f"\n{round_sig(approx)}")
         distance += right
         dists[it] += right / 2
     
@@ -235,8 +221,6 @@ def get_Neumann_entropy(
             dirc = "right",
             bk=bk
         )
-        
-        # print(f"{sigma=}")
         
         Neumann_entropy.append(get_entropy(sigma))
 
@@ -311,15 +295,11 @@ def check_site_canonical(
             val = left_isometry(site, bk)
             if val > non_isometry_max:
                 non_isometry_max = val
-                # print(f"Not site canonical\nsite {i} left isometry: {left_isometry(site)=}")
-                # return False
         
         elif i > loc:
             val = right_isometry(site, bk)
             if val > non_isometry_max:
                 non_isometry_max = val
-                # print(f"Not site canonical\nsite {i} right isometry: {right_isometry(site)=}")
-                # return False
     
     return non_isometry_max
 
@@ -331,7 +311,6 @@ def get_only_isometry(
     
     if loc1 == None:
         loc1 = find_site_loc(site_canonical, bk=bk)
-        # print(f"{loc=}")
     
     only_isometry = []
     
@@ -353,7 +332,6 @@ def move_site_left(
     
     if loc == None:
         loc = find_site_loc(site_canonical, bk=bk)
-        # print(f"{loc=}")
     
     assert loc < len(site_canonical), f"{loc=} >= {len(site_canonical)=}"
     assert loc > 0, f"{loc=} <= 0"
@@ -383,7 +361,6 @@ def move_site_right(
     
     if loc == None:
         loc = find_site_loc(site_canonical, bk=bk)
-        # print(f"{loc=}")
     
     assert loc < len(site_canonical), f"{loc=} >= {len(site_canonical)=}"
     assert loc < len(site_canonical)-1, f"{loc=} >= {len(site_canonical)-1=}"
@@ -398,7 +375,6 @@ def move_site_right(
     matrix = bk.reshape(bk.transpose(current, (0, 2, 1)), (current.shape[0]*current.shape[2], current.shape[1]))
     U, S, Vh = SVD(matrix)
     
-    # print(f"{matrix.shape=} {U.shape=} {S.shape=} {Vh.shape=}")
     temp[loc] = bk.transpose(bk.reshape(U, (current.shape[0], current.shape[2], -1)), (0, 2, 1))
     temp[loc+1] = Contract("ia,ab,bjk->ijk", bk.diag(S), Vh, right, bk=bk)
     
@@ -508,15 +484,9 @@ def tensor_to_mps(tensor: npt.NDArray, bk: Backend = Backend('auto')) -> list[np
         try:
             remaining_tensor = bk.reshape(after_tensor, (left_leg_dim * phys_leg_dims[it+1], -1))
         except Exception as e:
-            print(e)
-            print(f"{it=}\n{tensor.shape=}\n{left_leg_dim=}\n{phys_leg_dims=}")
-            print(f"{remaining_tensor.shape=}")
-            print(f"{after_tensor.shape=}")
-            print(f"{U.shape=}")
-            print(f"{S.shape=}")
-            print(f"{Vh.shape=}")
-            for it, mps in enumerate(MPS):
-                print(f"{it}, {mps.shape=}")
+            # Minimal error reporting, or consider logging instead of extensive prints
+            print(f"Error during tensor_to_mps at site {it}: {e}")
+            raise # Re-raise the exception after printing minimal info
     
     MPS.append(
         bk.transpose(bk.reshape(remaining_tensor, (left_leg_dim, phys_leg_dims[-1], 1)), (0, 2, 1))
