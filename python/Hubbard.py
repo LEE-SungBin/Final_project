@@ -9,7 +9,7 @@ def Hubbard_model(
     n_sites: int,
     hopping_t: float,
     interaction_U: float
-):
+) -> list[npt.NDArray]:
 
     """
 
@@ -75,7 +75,7 @@ def Hubbard_model_with_filling(
     hopping_t: float,
     interaction_U: float,
     chemical_potential: float,
-):
+) -> list[npt.NDArray]:
 
     """
 
@@ -112,7 +112,6 @@ def Hubbard_model_with_filling(
     density_down = creation_down @ annihilation_down
     
     for it in range(n_sites):
-        
         MPO = np.zeros(Hamiltonian_shape)
         
         MPO[:,:,0,0] = identity
@@ -122,10 +121,10 @@ def Hubbard_model_with_filling(
         MPO[:,:,4,0] = creation_down @ Jordan_Wigner_string
         MPO[:,:,5,0] = interaction_U * density_up @ density_down - chemical_potential * (density_up + density_down)
         
-        MPO[:,:,5,1] = hopping_t * creation_up
-        MPO[:,:,5,2] = hopping_t * annihilation_up
-        MPO[:,:,5,3] = hopping_t * creation_down
-        MPO[:,:,5,4] = hopping_t * annihilation_down
+        MPO[:,:,5,1] = -1 * hopping_t * creation_up
+        MPO[:,:,5,2] = -1 * hopping_t * annihilation_up
+        MPO[:,:,5,3] = -1 * hopping_t * creation_down
+        MPO[:,:,5,4] = -1 * hopping_t * annihilation_down
         MPO[:,:,5,5] = identity
 
         Hamiltonian.append(MPO)
