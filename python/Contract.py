@@ -31,7 +31,7 @@ def Contract(
         for op in operands:
             if bk.lib == "torch":
                 if not op.is_complex():
-                    op = op.to(dtype=bk.complex)
+                    op = op.type(bk.complex)
             else:
                 if not np.iscomplexobj(op):
                     op = op.astype(bk.complex)

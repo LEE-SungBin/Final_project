@@ -35,7 +35,7 @@ def site_canonical_MPS(
     prod_right = bk.identity(copy[-1].shape[1], dtype=np.complex128)
     
     for it in range(loc):
-        matrix = Contract("ia,ajk->ijk", prod_left, copy[it])
+        matrix = Contract("ia,ajk->ijk", prod_left, copy[it], bk=bk)
         temp = bk.transpose(matrix, (0,2,1))
         temp = bk.reshape(temp, (-1, matrix.shape[1]))
         
@@ -47,7 +47,7 @@ def site_canonical_MPS(
         assert left_isometry(copy[it], bk) < 1.e-6, f"copy[{it}] not left isometry\nleft_isometry(copy[{it}])={left_isometry(copy[it], bk)}\nU.conj().T@U={bk.matmul(bk.conj(U).T, U)}\nleft_prod_MPS(copy[{it}], bk)={left_prod_MPS(copy[it], bk)}"
     
     for it in range(loc+1, len_MPS)[::-1]:
-        matrix = Contract("iak,aj->ijk", copy[it], prod_right)
+        matrix = Contract("iak,aj->ijk", copy[it], prod_right, bk=bk)
         temp = bk.reshape(matrix, (matrix.shape[0], -1))
         
         U, S, Vh = SVD(temp, Nkeep=Dcut, Skeep=1.e-8)
@@ -57,7 +57,7 @@ def site_canonical_MPS(
         
         assert right_isometry(copy[it], bk) < 1.e-6, f"copy[{it}] not right isometry\nright_isometry(copy[{it}])={right_isometry(copy[it], bk)}\ncopy[{it}]={copy[it]}"
     
-    copy[loc] = Contract("ia,abk,bj->ijk", prod_left, copy[loc], prod_right)
+    copy[loc] = Contract("ia,abk,bj->ijk", prod_left, copy[loc], prod_right, bk=bk)
     
     # Convert back to numpy arrays if needed
     if bk.lib == "torch":
@@ -88,7 +88,7 @@ def site_to_bond_canonical_MPS(
         tensor = bk.reshape(orthogonality_center, (ortho_shape0, ortho_shape1 * ortho_shape2))
         U, Sigma, Vh = SVD(tensor)
         
-        left_isometry_mps = Contract("iak,aj->ijk", isometry, U)
+        left_isometry_mps = Contract("iak,aj->ijk", isometry, U, bk=bk)
         right_isometry_mps = bk.reshape(Vh, (-1, ortho_shape1, ortho_shape2))
         
         assert left_isometry(left_isometry_mps, bk) < tol, print(f"{left_isometry(left_isometry_mps, bk)=}")
@@ -104,7 +104,7 @@ def site_to_bond_canonical_MPS(
         U, Sigma, Vh = SVD(tensor)
         
         left_isometry_mps = bk.transpose(bk.reshape(U, (ortho_shape0, ortho_shape2, -1)), (0, 2, 1))
-        right_isometry_mps = Contract("ia,ajk->ijk", Vh, isometry)
+        right_isometry_mps = Contract("ia,ajk->ijk", Vh, isometry, bk=bk)
         
         assert left_isometry(left_isometry_mps, bk) < tol, print(f"{left_isometry(left_isometry_mps, bk)=}")
         assert right_isometry(right_isometry_mps, bk) < tol, print(f"{right_isometry(right_isometry_mps, bk)=}")
@@ -368,7 +368,7 @@ def move_site_left(
     U, S, Vh = SVD(matrix)
     
     temp[loc] = bk.reshape(Vh, (-1, current.shape[1], current.shape[2]))
-    temp[loc-1] = Contract("iak,ab,bj->ijk", left, U, bk.diag(S))
+    temp[loc-1] = Contract("iak,ab,bj->ijk", left, U, bk.diag(S), bk=bk)
     
     assert right_isometry(temp[loc], bk) < 1.e-6, f"Move left error, {right_isometry(temp[loc], bk)=}"
     
@@ -403,7 +403,7 @@ def move_site_right(
     
     # print(f"{matrix.shape=} {U.shape=} {S.shape=} {Vh.shape=}")
     temp[loc] = bk.transpose(bk.reshape(U, (current.shape[0], current.shape[2], -1)), (0, 2, 1))
-    temp[loc+1] = Contract("ia,ab,bjk->ijk", bk.diag(S), Vh, right)
+    temp[loc+1] = Contract("ia,ab,bjk->ijk", bk.diag(S), Vh, right, bk=bk)
     
     assert left_isometry(temp[loc], bk) < 1.e-6, f"Move right error, {left_isometry(temp[loc], bk)=}"
     
@@ -444,12 +444,12 @@ def right_isometry(single_MPS: npt.NDArray, bk: Backend = Backend('auto')) -> fl
 
 def left_prod_MPS(single_MPS: npt.NDArray, bk: Backend = Backend('auto')) -> npt.NDArray:
     
-    return Contract("aib,ajb->ij", bk.conj(single_MPS), single_MPS)
+    return Contract("aib,ajb->ij", bk.conj(single_MPS), single_MPS, bk=bk)
 
 
 def right_prod_MPS(single_MPS: npt.NDArray, bk: Backend = Backend('auto')) -> npt.NDArray:
     
-    return Contract("iab,jab->ij", single_MPS, bk.conj(single_MPS))
+    return Contract("iab,jab->ij", single_MPS, bk.conj(single_MPS), bk=bk)
 
 
 def tensor_to_mps(tensor: npt.NDArray, bk: Backend = Backend('auto')) -> list[npt.NDArray]:

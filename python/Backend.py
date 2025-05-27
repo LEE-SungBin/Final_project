@@ -39,18 +39,44 @@ class Backend:
 
     def array(self, x: Any, dtype=None) -> Union[np.ndarray, torch.Tensor]:
         if self.lib == "torch":
+            if isinstance(x, list):
+                # Handle list of 0-d tensors/arrays by converting to Python scalars
+                processed_x = []
+                for item in x:
+                    if isinstance(item, torch.Tensor) and item.ndim == 0:
+                        processed_x.append(item.item())
+                    elif isinstance(item, np.ndarray) and item.ndim == 0:
+                        processed_x.append(item.item())
+                    else:
+                        processed_x.append(item)
+                x = processed_x
+            if isinstance(x, torch.Tensor):
+                return x.clone().detach().to(self.device, dtype=dtype)
             return self.xp.tensor(x, dtype=dtype, device=self.device)
+        
+        # Numpy backend
+        if isinstance(x, list):
+            # Handle list of 0-d tensors/arrays by converting to Python scalars
+            processed_x = []
+            for item in x:
+                if isinstance(item, torch.Tensor) and item.ndim == 0:
+                    processed_x.append(item.item())
+                elif isinstance(item, np.ndarray) and item.ndim == 0:
+                    processed_x.append(item.item())
+                else:
+                    processed_x.append(item)
+            x = processed_x
         return self.xp.array(x, dtype=dtype)
 
-    def zeros(self, x: Union[int, tuple], dtype=None) -> Union[np.ndarray, torch.Tensor]:
+    def zeros(self, shape: Union[int, tuple], dtype=None) -> Union[np.ndarray, torch.Tensor]:
         if self.lib == "torch":
-            return self.xp.zeros(x, dtype=dtype, device=self.device)
-        return self.xp.zeros(x, dtype=dtype)
+            return self.xp.zeros(shape, dtype=dtype, device=self.device)
+        return self.xp.zeros(shape, dtype=dtype)
 
-    def ones(self, x: Union[int, tuple], dtype=None) -> Union[np.ndarray, torch.Tensor]:
+    def ones(self, shape: Union[int, tuple], dtype=None) -> Union[np.ndarray, torch.Tensor]:
         if self.lib == "torch":
-            return self.xp.ones(x, dtype=dtype, device=self.device)
-        return self.xp.ones(x, dtype=dtype)
+            return self.xp.ones(shape, dtype=dtype, device=self.device)
+        return self.xp.ones(shape, dtype=dtype)
 
     def eye(self, x: int, dtype=None) -> Union[np.ndarray, torch.Tensor]:
         if self.lib == "torch":
@@ -84,8 +110,14 @@ class Backend:
 
     def tensordot(self, a: Union[np.ndarray, torch.Tensor], b: Union[np.ndarray, torch.Tensor], axes):
         if self.lib == "torch":
+            a = a.type(self.complex) # Ensure complex type
+            b = b.type(self.complex) # Ensure complex type
             return self.xp.tensordot(a, b, dims=axes)
-        return self.xp.tensordot(a, b, axes=axes)
+        else: # numpy
+            dtype = self.complex
+            a = np.array(a, dtype=dtype) # Ensure 'a' is a NumPy array and then set dtype
+            b = np.array(b, dtype=dtype) # Ensure 'b' is a NumPy array and then set dtype
+            return self.xp.tensordot(a, b, axes=axes)
 
     def conj(self, a: Union[np.ndarray, torch.Tensor]):
         return a.conj()
@@ -95,8 +127,22 @@ class Backend:
 
     def transpose(self, a: Union[np.ndarray, torch.Tensor], axes: tuple):
         if self.lib == "torch":
-            return a.permute(axes)
-        return self.xp.transpose(a, axes)
+            # Ensure 'a' is a torch tensor on the correct device
+            if not isinstance(a, torch.Tensor):
+                current_a = self.xp.tensor(a, device=self.device, dtype=self.complex)
+            elif a.device != self.device or not a.is_complex():
+                current_a = a.to(device=self.device, dtype=self.complex)
+            else:
+                current_a = a
+            return current_a.permute(axes)
+        else:  # self.lib == "numpy"
+            # Ensure 'a' is a numpy array and is complex
+            if isinstance(a, torch.Tensor):
+                current_a = a.cpu().numpy().astype(self.complex)
+            else:
+                # Ensure it's a numpy array and then set dtype
+                current_a = np.array(a, dtype=self.complex)
+            return current_a.transpose(axes)
 
     def reshape(self, a: Union[np.ndarray, torch.Tensor], shape: tuple):
         return a.reshape(shape)

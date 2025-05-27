@@ -63,11 +63,11 @@ def BP_for_MPS(
                         
             if dirc == 0:
                 Messages[loc].append(Contract(
-                    "iab,jab->ij", tensor, tensor.conj()))
+                    "ia,ajk->ijk", tensor, tensor.conj(), bk=bk))
 
             elif dirc == 1:
                 Messages[loc].append(Contract(
-                    "aib,ajb->ij", tensor, tensor.conj()))
+                    "iak,aj->ijk", tensor, tensor.conj(), bk=bk))
     
     # print(f"{Messages[0][0]=}")
     # print(f"{Messages[-1][1]=}")
@@ -105,10 +105,10 @@ def BP_for_MPS(
             new_nn = update_message_MPS(
                 nn_loc, nn_dirc, MPS, nn_points, new_messages)
             
-            norm = Contract("ij,ij", new, new_nn)
+            norm = Contract("ij,ij->", new, new_nn, bk=bk)
             new = new / np.sqrt(norm)
             new_nn = new_nn / np.sqrt(norm)
-            new_norm = Contract("ij,ij",new, new_nn)
+            new_norm = Contract("ij,ij->", new, new_nn, bk=bk)
 
             assert np.abs(new_norm-1) < 1.e-8, f"abs(norm-1){round_sig(np.abs(new_norm-1))} > 0"
             
@@ -183,7 +183,7 @@ def BP_for_MPS(
                 assert type(Gamma_decoms[nn_loc][nn_dirc]) == int, f"Gamma decomposition structure error"
                 
                 matrix = Contract(
-                    "ia,ja->ij", root_Messages[loc][dirc], root_Messages[nn_loc][nn_dirc])
+                    "ia,ajk->ijk", root_Messages[loc][dirc], root_Messages[nn_loc][nn_dirc], bk=bk)
                 
                 U, Lambda, Vh = SVD(matrix, Nkeep=Dcut)
                 
@@ -194,7 +194,7 @@ def BP_for_MPS(
     
     for loc in range(len_MPS):
         Gammas.append(Contract(
-            "abk,ai,bj->ijk", MPS[loc], *Gamma_decoms[loc]))
+            "iak,aj->ijk", MPS[loc], U, bk=bk))
 
     if return_iter:
         return Gammas, Lambdas, it
@@ -220,10 +220,10 @@ def update_message_MPS(
     
     if dirc == 0:
         return Contract(
-            "iax,jbx,ab->ij", tensor, tensor.conj(), *incoming_messages)
+            "iax,jbx,ab->ij", tensor, tensor.conj(), *incoming_messages, bk=bk)
     else:
         return Contract(
-            "aix,bjx,ab->ij", tensor, tensor.conj(), *incoming_messages)
+            "aix,bjx,ab->ij", tensor, tensor.conj(), *incoming_messages, bk=bk)
 
 
 def get_root_and_inv(
@@ -278,7 +278,7 @@ def sym_gauge_MPS(
         gamma, Lambda = tensors
         
         sym_gauge_mps.append(Contract(
-            "ai,abk,bj->ijk", np.diag(np.sqrt(Lambda[0])), gamma, np.diag(np.sqrt(Lambda[1]))))
+            "iak,aj->ijk", MPS[it], U, bk=bk))
     
     return sym_gauge_mps
 

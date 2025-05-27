@@ -49,7 +49,7 @@ def MPS_MPS_overlap(
         overlap = bk.tensordot(overlap, bk.array([1]).reshape(1, 1), axes=[(0, 1), (0, 1)])
     
     else:
-        overlap = bk.tensordot(overlap, bk.array([1]).reshape(1, 1), axes=[(0), (0)])
+        overlap = bk.tensordot(overlap, bk.array([1]).reshape(1, 1), axes=[(0,), (0,)])
         
         ord_overlap = len(overlap.shape)
         lst = [i for i in range(ord_overlap)]
@@ -58,7 +58,7 @@ def MPS_MPS_overlap(
     
     # print(f"{overlap.shape=}")
     
-    return bk.to_cpu(overlap)
+    return overlap
 
 
 def mps_mps(
@@ -73,7 +73,7 @@ def mps_mps(
     
     if backward:
         new = bk.tensordot(
-            new, mps2, axes=[(1, len(new.shape)-1), (0, 2)]
+            new, mps2, axes=((1, len(new.shape)-1), (0, 2))
         )
         
         ord_new = len(new.shape)
@@ -85,7 +85,7 @@ def mps_mps(
     
     else:
         new = bk.tensordot(
-            new, mps2, axes=[(len(new.shape)-1), (2)]
+            new, mps2, axes=((len(new.shape)-1), (2))
         )
         
         ord_new = len(new.shape)
@@ -104,7 +104,7 @@ def mps_none(
     bk: Backend = Backend('auto')
 ) -> npt.NDArray:
     
-    new = bk.tensordot(tensor, mps1, axes=[(0), (0)])
+    new = bk.tensordot(tensor, mps1, axes=((0,), (0,)))
     
     ord_new = len(new.shape)
     lst = [i for i in range(ord_new)]
@@ -158,9 +158,9 @@ def MPS_MPO_MPS_overlap(
             backward = True
     
     if backward:
-        overlap = bk.tensordot(overlap, bk.array([1]).reshape(1, 1, 1), axes=[(0, 1, 2), (0, 1, 2)])
+        overlap = bk.tensordot(overlap, bk.array([1]).reshape(1, 1, 1), axes=((0, 1, 2), (0, 1, 2)))
     else:
-        overlap = bk.tensordot(overlap, bk.array([1]).reshape(1, 1, 1), axes=[(0, 1), (0, 1)])
+        overlap = bk.tensordot(overlap, bk.array([1]).reshape(1, 1, 1), axes=((0, 1), (0, 1)))
         
         ord_overlap = len(overlap.shape)
         lst = [i for i in range(ord_overlap)]
@@ -200,7 +200,7 @@ def MPS_MPO_multiplication(
     for mps, mpo in zip(MPS, MPO):
         overlap = mps_mpo_none(overlap, mps, mpo, bk)
     
-    overlap = bk.tensordot(overlap, bk.array([1]).reshape(1, 1, 1), axes=[(0, 1), (0, 1)])   
+    overlap = bk.tensordot(overlap, bk.array([1]).reshape(1, 1, 1), axes=((0, 1), (0, 1)))   
     ord_overlap = len(overlap.shape)
     lst = [i for i in range(ord_overlap)]
     
@@ -217,14 +217,14 @@ def contract_MPS(MPS: list[npt.NDArray]) -> npt.NDArray:
     absolute = MPS[0]
     
     for it in range(1, len(MPS)):
-        absolute = Tensordot(absolute, MPS[it], axes=[(1), (0)])
+        absolute = Tensordot(absolute, MPS[it], axes=((1,), (0,)))
         ord_absolute = len(absolute.shape)
         lst = [i for i in range(ord_absolute)]
         absolute = absolute.transpose(
             rearrange_list_by_values(lst, [ord_absolute-2], [1])
         )
     
-    absolute = Tensordot(absolute, np.identity(absolute.shape[0]), axes=[(0,1), (0,1)])
+    absolute = Tensordot(absolute, np.identity(absolute.shape[0]), axes=((0,1), (0,1)))
 
     assert len(absolute.shape) == len(MPS)
 
@@ -273,7 +273,8 @@ def Hamiltonian_to_MPO(
     
 
 def MPO_to_Hamiltonian(
-    MPO: list[npt.NDArray]
+    MPO: list[npt.NDArray],
+    bk: Backend = Backend('auto')
 ):
     
     """
@@ -284,26 +285,33 @@ def MPO_to_Hamiltonian(
 
     n_sites = len(MPO)
     
-    rotate_MPO = [mpo.transpose(0, 2, 3, 1) for mpo in MPO]
+    # Use the robust bk.transpose which handles permute/transpose internally
+    rotate_MPO = [bk.transpose(mpo, (0, 2, 3, 1)) for mpo in MPO]
+        
     physical_dim = rotate_MPO[0].shape[1]
 
     Hamiltonian = rotate_MPO[0]
     
     for it in range(1, n_sites):
-        Hamiltonian = Tensordot(Hamiltonian, rotate_MPO[it], axes=([2*it+1], [0]))
+        Hamiltonian = bk.tensordot(Hamiltonian, rotate_MPO[it], axes=((2*it+1,), (0,)))
 
     Hamiltonian = Hamiltonian.reshape(Hamiltonian.shape[1:2*n_sites+1])
 
-    transpose = []
+    transpose_axes = []
     
     for it in range(n_sites):
-        transpose.append(2*it)
+        transpose_axes.append(2*it)
     for it in range(n_sites):
-        transpose.append(2*it+1)
+        transpose_axes.append(2*it+1)
         
-    Hamiltonian = Hamiltonian.transpose(tuple(transpose))
+    Hamiltonian = bk.transpose(Hamiltonian, tuple(transpose_axes))
     
     Hamiltonian = Hamiltonian.reshape(physical_dim**n_sites, physical_dim**n_sites)
+    
+    # If the backend is torch, convert to CPU numpy for compatibility with np.linalg.eigh
+    # If the backend is numpy, it's already a numpy array
+    if bk.lib == "torch":
+        Hamiltonian = bk.to_cpu(Hamiltonian)
     
     return Hamiltonian
 
@@ -320,7 +328,7 @@ def mps_mpo_mps(
     new = mps_mpo_none(tensor, mps1, mpo, bk)
     
     if backward:
-        new = bk.tensordot(new, mps2, axes=[(2, len(new.shape)-1), (0, 2)])
+        new = bk.tensordot(new, mps2, axes=((2, len(new.shape)-1), (0, 2)))
         
         ord_new = len(new.shape)
         lst = [i for i in range(ord_new)]
@@ -330,7 +338,7 @@ def mps_mpo_mps(
         )
     
     else:
-        new = bk.tensordot(new, mps2, axes=[(len(new.shape)-1), (2)])
+        new = bk.tensordot(new, mps2, axes=((len(new.shape)-1), (2)))
         
         ord_new = len(new.shape)
         lst = [i for i in range(ord_new)]
@@ -374,7 +382,7 @@ def mps_mpo_none(
     bk: Backend = Backend('auto')
 ) -> npt.NDArray:
     
-    new = bk.tensordot(tensor, mps1, axes=[(0), (0)])
+    new = bk.tensordot(tensor, mps1, axes=((0,), (0,)))
     
     ord_new = len(new.shape)
     lst = [i for i in range(ord_new)]
@@ -383,7 +391,7 @@ def mps_mpo_none(
         new, rearrange_list_by_values(lst, [ord_new-2], [0])
     )
     
-    new = bk.tensordot(new, mpo, axes=[(1, len(new.shape)-1), (0, 3)])
+    new = bk.tensordot(new, mpo, axes=((1, len(new.shape)-1), (0, 3)))
     
     ord_new = len(new.shape)
     lst = [i for i in range(ord_new)]

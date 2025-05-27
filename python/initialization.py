@@ -111,12 +111,12 @@ def Iterative_diagonalization(
         )
         
         new_Hamiltonian = Contract(
-            "ab,aix,bjx->ij", before_Hamiltonian, identity, identity
+            "ab,aix,bjx->ij", before_Hamiltonian, identity, identity, bk=bk
         )
         
         new_Hamiltonian = new_Hamiltonian + Contract(
             "abc,aix,yxb,cjy->ij", before_tensor,
-            identity, truncated_Hamiltonian, identity
+            identity, truncated_Hamiltonian, identity, bk=bk
         )
         
         if it == len(Hamiltonian) - 1:
@@ -124,7 +124,7 @@ def Iterative_diagonalization(
         else:
             Keep = NKeep
         
-        eigvals, eigvecs = EIGH(new_Hamiltonian)
+        eigvals, eigvecs = EIGH(new_Hamiltonian, bk=bk)
         
         """
         Get the lowest Keep eigvals and its corresponding eigvecs
@@ -132,17 +132,22 @@ def Iterative_diagonalization(
         eigvals = eigvals[-Keep:]
         eigvecs = eigvecs[:, -Keep:]
         
-        before_Hamiltonian = eigvecs.conj().T @ new_Hamiltonian @ eigvecs
+        # Ensure all tensors are in the correct backend type
+        eigvecs = bk.to_device(eigvecs)
+        new_Hamiltonian = bk.to_device(new_Hamiltonian)
+        
+        # Perform matrix multiplication using backend functions
+        before_Hamiltonian = bk.matmul(bk.matmul(bk.conj(eigvecs).T, new_Hamiltonian), eigvecs)
         
         update_isometry = Contract(
-            "iak,aj->ijk", identity, eigvecs.conj()
+            "iak,aj->ijk", identity, eigvecs.conj(), bk=bk
         )
         MPS.append(update_isometry)
         
         before_tensor = Contract(
             "abc,aix,yxbj,cky->ijk",
             before_tensor, update_isometry,
-            local_Hamiltonian, update_isometry.conj()
+            local_Hamiltonian, update_isometry.conj(), bk=bk
         )
     
     return MPS

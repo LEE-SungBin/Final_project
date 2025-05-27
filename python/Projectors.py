@@ -86,11 +86,11 @@ def get_projector(
 
     else:
         ABABDagger = Contract(
-            "iax,jay,kbx,lby->ijkl", Au, Ad, Au.conj(), Ad.conj()
+            "ijab,klcd->ijklabcd", Au, Au.conj(), bk=Ad
         ).reshape(Ausize * Adsize, Ausize * Adsize)
 
         CDCDDagger = Contract(
-            "iax,jay,kbx,lby->ijkl", Aunn, Adnn, Aunn.conj(), Adnn.conj()
+            "ijab,klcd->ijklabcd", Aunn, Adnn.conj(), bk=Ad
         ).reshape(Ausize * Adsize, Ausize * Adsize)
 
         # eigval1, eigvec1 = EIGH(ABABDagger, Nkeep=int(np.sqrt(Ausize*Adsize)))
@@ -173,7 +173,8 @@ def get_projector(
             P2 /= normalization
 
         P1 = P1.reshape(Ausize, Adsize, -1)
-        P2 = P2.reshape(-1, Ausize, Adsize).transpose(1, 2, 0)
+        P2 = P2.reshape(-1, Ausize, Adsize)
+        P2 = bk.transpose(P2, (1, 2, 0))
 
         # Projectors = Contract(
         #     "ija,kla->ijkl", P1, P2
@@ -217,7 +218,7 @@ def get_HOTRG_loss(ABABDagger, CDCDDagger, Projectors) -> float:
     Ausize = ABABDagger.shape[0]
     Adsize = ABABDagger.shape[1]
 
-    EEdagger = Contract("ijab,klcd->ijklabcd", ABABDagger, CDCDDagger)
+    EEdagger = Contract("ijab,klcd->ijklabcd", ABABDagger, CDCDDagger, bk=Ad)
     EEdagger = EEdagger.reshape(Ausize**2*Adsize**2, Ausize**2*Adsize**2)
 
     # print(f"{EEdagger.shape=}")
@@ -227,10 +228,10 @@ def get_HOTRG_loss(ABABDagger, CDCDDagger, Projectors) -> float:
     S = np.sqrt(eigval)
     U = eigvec.reshape(Ausize, Adsize, Ausize, Adsize, -1)
 
-    t = Contract("ababi->i", U)
-    tprime = Contract("abcdi,abcd->i", U, Projectors)
+    t = Contract("ababi->i", U, bk=Ad)
+    tprime = Contract("abcdi,abcd->i", U, Projectors, bk=Ad)
 
-    original = Contract("a,ai->i", t, np.diag(S))
-    new = Contract("a,ai->i", tprime, np.diag(S))
+    original = Contract("a,ai->i", t, np.diag(S), bk=Ad)
+    new = Contract("a,ai->i", tprime, np.diag(S), bk=Ad)
 
     return np.linalg.norm(original-new)/np.linalg.norm(original)

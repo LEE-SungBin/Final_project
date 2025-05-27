@@ -308,9 +308,9 @@ def sweep_with_single_site_update(
           
           energies.append(energy)
                     
-          matrix = vector.transpose(0, 2, 1).reshape(-1, vector.shape[1])
+          matrix = bk.transpose(vector, (0, 2, 1)).reshape(-1, vector.shape[1])
           U, S, Vh = SVD(matrix, full_SVD=True, bk=bk)
-          U = U.reshape(vector.shape[0], vector.shape[2], -1).transpose(0, 2, 1)
+          U = bk.transpose(U.reshape(vector.shape[0], vector.shape[2], -1), (0, 2, 1))
           
           """
           renormalize
@@ -580,10 +580,10 @@ def sweep_with_two_site_update(
           
           energies.append(energy)
                     
-          matrix = vector.transpose(0, 2, 1, 3).reshape(vector.shape[0] * vector.shape[2], -1)
+          matrix = bk.transpose(vector, (0, 2, 1, 3)).reshape(vector.shape[0] * vector.shape[2], -1)
           U, S, Vh = SVD(matrix, Nkeep=NKeep, Skeep=1.e-8, bk=bk)
           Vh = Vh.reshape(-1, vector.shape[1], vector.shape[3])
-          U = U.reshape(vector.shape[0], vector.shape[2], -1).transpose(0, 2, 1)
+          U = bk.transpose(U.reshape(vector.shape[0], vector.shape[2], -1), (0, 2, 1))
           
           """
           renormalize
@@ -667,9 +667,9 @@ def sweep_with_two_site_update(
           
           energies.append(energy)
                     
-          matrix = vector.transpose(0, 2, 1, 3).reshape(vector.shape[0] * vector.shape[2], -1)
+          matrix = bk.transpose(vector, (0, 2, 1, 3)).reshape(vector.shape[0] * vector.shape[2], -1)
           U, S, Vh = SVD(matrix, Nkeep = NKeep, Skeep = 1e-8, bk=bk)
-          U = U.reshape(vector.shape[0], vector.shape[2], -1).transpose(0, 2, 1)
+          U = bk.transpose(U.reshape(vector.shape[0], vector.shape[2], -1), (0, 2, 1))
           Vh = Vh.reshape(-1, vector.shape[1], vector.shape[3])
           
           """
