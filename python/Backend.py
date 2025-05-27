@@ -126,23 +126,11 @@ class Backend:
         return contract(subscripts, *operands)
 
     def transpose(self, a: Union[np.ndarray, torch.Tensor], axes: tuple):
+        a = self.array(a)
         if self.lib == "torch":
-            # Ensure 'a' is a torch tensor on the correct device
-            if not isinstance(a, torch.Tensor):
-                current_a = self.xp.tensor(a, device=self.device, dtype=self.complex)
-            elif a.device != self.device or not a.is_complex():
-                current_a = a.to(device=self.device, dtype=self.complex)
-            else:
-                current_a = a
-            return current_a.permute(axes)
+            return a.permute(axes)
         else:  # self.lib == "numpy"
-            # Ensure 'a' is a numpy array and is complex
-            if isinstance(a, torch.Tensor):
-                current_a = a.cpu().numpy().astype(self.complex)
-            else:
-                # Ensure it's a numpy array and then set dtype
-                current_a = np.array(a, dtype=self.complex)
-            return current_a.transpose(axes)
+            return a.transpose(axes)
 
     def reshape(self, a: Union[np.ndarray, torch.Tensor], shape: tuple):
         return a.reshape(shape)

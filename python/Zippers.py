@@ -85,7 +85,7 @@ def mps_mps(
     
     else:
         new = bk.tensordot(
-            new, mps2, axes=((len(new.shape)-1), (2))
+            new, mps2, axes=((len(new.shape)-1,), (2,))
         )
         
         ord_new = len(new.shape)
@@ -339,7 +339,7 @@ def mps_mpo_mps(
         )
     
     else:
-        new = bk.tensordot(new, mps2, axes=((len(new.shape)-1), (2)))
+        new = bk.tensordot(new, mps2, axes=((len(new.shape)-1,), (2,)))
         
         ord_new = len(new.shape)
         lst = [i for i in range(ord_new)]
