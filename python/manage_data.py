@@ -4,7 +4,7 @@ import pickle
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Self
+from typing import Any, Self, List, Optional, Tuple, Union
 
 import numpy as np
 import numpy.typing as npt
@@ -21,6 +21,7 @@ from matplotlib.axes import Axes
 import platform
 
 from python.utils import round_sig, geo_mean, geo_std, print_traceback, get_shape, expected_fid
+from python.Backend import Backend
 
 
 def ensure_list(x):

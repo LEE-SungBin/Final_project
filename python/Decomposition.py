@@ -8,6 +8,7 @@ import time
 # from threadpoolctl import threadpool_limits as tl
 
 from python.utils import print_traceback, round_sig
+from python.Backend import Backend
 
 # thread_limit=8
 
@@ -22,6 +23,7 @@ def SVD(
     threshold: float = 1.e-8,
     ifloss: bool = False,
     full_SVD: bool = False,
+    bk: Backend = Backend('auto')
 ) -> tuple[npt.NDArray, npt.NDArray, npt.NDArray] | tuple[npt.NDArray, npt.NDArray, npt.NDArray, float]:
     
     """
@@ -39,7 +41,7 @@ def SVD(
     # assert np.isfinite(matrix).all(), f"Matrix not finite, {matrix=}"
     assert len(matrix.shape) == 2, f"{len(matrix.shape)=} != 2"
     # stable_matrix = deepcopy(matrix)
-    stable_matrix = matrix
+    stable_matrix = bk.to_device(matrix)
     
     if np.isnan(stable_matrix).any() or np.isinf(stable_matrix).any():
         print("Data contains NaN or Inf values")
@@ -56,7 +58,7 @@ def SVD(
 
     if full_SVD or Nkeep == 0:
         try:
-            U, S, Vh = np.linalg.svd(stable_matrix, full_matrices=False)
+            U, S, Vh = bk.svd(stable_matrix, full_matrices=False)
         except np.linalg.LinAlgError as e:
             print(f"np.linalg.svd error\n{e}")
             print_traceback(e)
@@ -66,7 +68,7 @@ def SVD(
 
     elif norm_Keep is not None:
         try:
-            U, S, Vh = np.linalg.svd(stable_matrix, full_matrices=False)
+            U, S, Vh = bk.svd(stable_matrix, full_matrices=False)
         except np.linalg.LinAlgError as e:
             print(f"np.linalg.svd error\n{e}")
             print_traceback(e)
@@ -295,10 +297,8 @@ def random_SVD(
 def EIGH(
     matrix: npt.NDArray,
     Nkeep: int | None = None,
-    Skeep: float | None = None,
-    threshold: float = 1.e-8,
-    ifloss: bool = False,
-) -> tuple[npt.NDArray, npt.NDArray] | tuple[npt.NDArray, npt.NDArray, float]:
+    bk: Backend = Backend('auto')
+) -> tuple[npt.NDArray, npt.NDArray]:
     
     
     """
@@ -319,10 +319,7 @@ def EIGH(
     # if not np.allclose(matrix, matrix.conj().T, rtol=1.e-8, atol=1.e-8):
     
     if matrix.shape[0] == 1:
-        if ifloss:
-            return matrix[0], np.diag([1]), 0.0
-        else:
-            return matrix[0], np.diag([1])
+        return matrix[0], np.diag([1])
 
     try:
         hermitian_error = np.linalg.norm(
@@ -338,9 +335,9 @@ def EIGH(
     # print(f"hermitian, {round_sig(time.perf_counter()-now)}s", end=" ")
 
     # stable_matrix = deepcopy(matrix)
-    stable_matrix = matrix
+    stable_matrix = bk.to_device(matrix)
 
-    eigvals, eigvecs = exact_EIGH(matrix, stable_matrix, Nkeep=Nkeep, Skeep=Skeep)
+    eigvals, eigvecs = exact_EIGH(matrix, stable_matrix, Nkeep=Nkeep)
 
     # if eigvals is not None and len(eigvals) > 0:
     #     if Skeep is not None:
@@ -363,20 +360,7 @@ def EIGH(
     assert np.isfinite(eigvecs).all(
     ), f"EIGH Error, Not finite {eigvecs=}\n{matrix.shape=}\n{matrix=}"
 
-
-    if ifloss:
-        loss = np.linalg.norm(
-            matrix - eigvecs @ np.diag(eigvals)
-            @ eigvecs.conj().T)/np.linalg.norm(matrix)
-
-        # print(f"Finished {round_sig(time.perf_counter()-now)}s")
-
-        return eigvals, eigvecs, loss
-
-    # print(f"Finished {round_sig(time.perf_counter()-now)}s")
-    else:
-        
-        return eigvals, eigvecs
+    return eigvals, eigvecs
 
 
 def exact_EIGH(
@@ -455,8 +439,9 @@ def lanczos(A, k, n_iter=10):
 
 
 def QR(
-    matrix: npt.NDArray
-):
+    matrix: npt.NDArray,
+    bk: Backend = Backend('auto')
+) -> tuple[npt.NDArray, npt.NDArray]:
     """
     Return Q, R
     
@@ -471,7 +456,7 @@ def QR(
     # assert np.isfinite(matrix).all(), f"Matrix not finite, {matrix=}"
     assert len(matrix.shape) == 2, f"{len(matrix.shape)=} != 2"
     
-    stable_matrix = matrix
+    stable_matrix = bk.to_device(matrix)
     
     m, n = matrix.shape    
     # if m < n:
@@ -491,7 +476,7 @@ def QR(
         print(f"QR big matrix, shape={matrix.shape}: ", end="")
     
     try:
-        Q, R = np.linalg.qr(stable_matrix, mode="reduced")
+        Q, R = bk.qr(stable_matrix, mode="reduced")
     except np.linalg.LinAlgError as e:
         print(f"np.linalg.qr error\n{e}")
         print_traceback(e)

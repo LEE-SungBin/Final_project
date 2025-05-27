@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 # * Self only available after python 3.11
 # from typing import Self
-from typing import Any
+from typing import Any, List, Optional, Tuple, Union
 from dataclasses import dataclass, field, asdict
 import hashlib
 import pickle
@@ -26,6 +26,7 @@ import numpy as np
 import psutil
 import os
 import tracemalloc
+from python.Backend import Backend
 
 
 import numpy as np

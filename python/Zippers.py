@@ -1,6 +1,8 @@
-import numpy as numpy
+import numpy as np
 import numpy.typing as npt
 from copy import deepcopy
+from typing import List, Optional, Tuple, Union
+from python.Backend import Backend
 
 from python.utils import rearrange_list_by_values
 from python.Decomposition import *
@@ -11,6 +13,7 @@ def MPS_MPS_overlap(
     MPS1: list[npt.NDArray],
     MPS2: list[npt.NDArray],
     conj: bool = True,
+    bk: Backend = Backend('auto')
 ) -> npt.NDArray:
     
     assert len(MPS1) == len(MPS2), f"{len(MPS1)=} != {len(MPS2)=}"
@@ -19,46 +22,43 @@ def MPS_MPS_overlap(
     # for it, _ in enumerate(MPS1):
     #     print(f"MPS1[{it}].shape={MPS1[it].shape} MPS2[{it}].shape={MPS2[it].shape}")
     
-    overlap = np.array([1]).reshape(1, 1)
+    overlap = bk.array([1]).reshape(1, 1)
     backward = True
     
     for i in range(ord_MPS):
-
-        mps1 = MPS1[i]
-        mps2 = MPS2[i]
+        mps1 = bk.to_device(MPS1[i])
+        mps2 = bk.to_device(MPS2[i]) if MPS2[i] is not None else None
     
         # print(f"{i}")
         if mps2 is None:
             # print(f"{mps1.shape=}, {mps2=}")
-            overlap = mps_none(overlap, mps1)
+            overlap = mps_none(overlap, mps1, bk)
             # print(f"{overlap.shape=}")
             backward = False
         else:
             # print(f"{mps1.shape=}, {mps2.shape=}")
             if conj:
-                overlap = mps_mps(overlap, mps1, mps2.conj(), backward)
+                overlap = mps_mps(overlap, mps1, bk.conj(mps2), backward, bk)
             else:
-                overlap = mps_mps(overlap, mps1, mps2, backward)
+                overlap = mps_mps(overlap, mps1, mps2, backward, bk)
             # # print(f"{overlap.shape=}")
             backward = True
         i += 1
     
     if backward:
-        overlap = Tensordot(overlap, np.array([1]).reshape(1, 1), axes=[(0, 1), (0, 1)])
+        overlap = bk.tensordot(overlap, bk.array([1]).reshape(1, 1), axes=[(0, 1), (0, 1)])
     
     else:
-        overlap = Tensordot(overlap, np.array([1]).reshape(1, 1), axes=[(0), (0)])
+        overlap = bk.tensordot(overlap, bk.array([1]).reshape(1, 1), axes=[(0), (0)])
         
         ord_overlap = len(overlap.shape)
         lst = [i for i in range(ord_overlap)]
         
-        overlap = overlap.transpose(
-            rearrange_list_by_values(lst, [ord_overlap-1], [1])
-        )
+        overlap = bk.transpose(overlap, rearrange_list_by_values(lst, [ord_overlap-1], [1]))
     
     # print(f"{overlap.shape=}")
     
-    return overlap
+    return bk.to_cpu(overlap)
 
 
 def mps_mps(
@@ -66,32 +66,33 @@ def mps_mps(
     mps1: npt.NDArray,
     mps2: npt.NDArray,
     backward: bool = True,
+    bk: Backend = Backend('auto')
 ) -> npt.NDArray:
     
-    new = mps_none(tensor, mps1)
+    new = mps_none(tensor, mps1, bk)
     
     if backward:
-        new = Tensordot(
+        new = bk.tensordot(
             new, mps2, axes=[(1, len(new.shape)-1), (0, 2)]
         )
         
         ord_new = len(new.shape)
         lst = [i for i in range(ord_new)]
         
-        new = new.transpose(
-            rearrange_list_by_values(lst, [ord_new-1], [1])
+        new = bk.transpose(
+            new, rearrange_list_by_values(lst, [ord_new-1], [1])
         )
     
     else:
-        new = Tensordot(
+        new = bk.tensordot(
             new, mps2, axes=[(len(new.shape)-1), (2)]
         )
         
         ord_new = len(new.shape)
         lst = [i for i in range(ord_new)]
         
-        new = new.transpose(
-            rearrange_list_by_values(lst, [ord_new-1, ord_new-2], [1, 3])
+        new = bk.transpose(
+            new, rearrange_list_by_values(lst, [ord_new-1, ord_new-2], [1, 3])
         )
     
     return new
@@ -99,16 +100,17 @@ def mps_mps(
 
 def mps_none(
     tensor: npt.NDArray,
-    mps1: npt.NDArray
+    mps1: npt.NDArray,
+    bk: Backend = Backend('auto')
 ) -> npt.NDArray:
     
-    new = Tensordot(tensor, mps1, axes=[(0), (0)])
+    new = bk.tensordot(tensor, mps1, axes=[(0), (0)])
     
     ord_new = len(new.shape)
     lst = [i for i in range(ord_new)]
     
-    new = new.transpose(
-        rearrange_list_by_values(lst, [ord_new-2], [0])
+    new = bk.transpose(
+        new, rearrange_list_by_values(lst, [ord_new-2], [0])
     )
     
     return new
@@ -118,7 +120,8 @@ def MPS_MPO_MPS_overlap(
     MPS1: list[npt.NDArray],
     MPO: list[npt.NDArray],
     MPS2: list[npt.NDArray],
-    conj: bool = True
+    conj: bool = True,
+    bk: Backend = Backend('auto')
 ) -> npt.NDArray:
     
     """
@@ -136,59 +139,44 @@ def MPS_MPO_MPS_overlap(
     assert len(MPS1) == len(MPO), f"{len(MPS1)=} != {len(MPO)=}"
     
     for i in range(len(MPS1)):
-        
         assert MPS1[i].shape[2] == MPO[i].shape[3], f"MPS1[{i}].shape[2]={MPS1[i].shape[2]} != MPO[{i}].shape[3]={MPO[i].shape[3]}"
-        
         if MPS2[i] is not None:
             assert MPS2[i].shape[2] == MPO[i].shape[2], f"MPS2[{i}].shape[2]={MPS2[i].shape[2]} != MPO[{i}].shape[2]={MPO[i].shape[2]}"
-        
-        # print(f"MPS1[{i}].shape={MPS1[i].shape} MPO[{i}].shape={MPO[i].shape} MPS2[{i}].shape={MPS2[i].shape}")
     
-    overlap = np.array([1]).reshape(1, 1, 1)
+    overlap = bk.array([1]).reshape(1, 1, 1)
     backward = True    
     
-    i = 0
     for mps1, mpo, mps2 in zip(MPS1, MPO, MPS2):
-        # print(f"Zippers {i}")
         if mps2 is None:
-            # print(f"{mps1.shape=} {mpo.shape=} {mps2=}")
-            overlap = mps_mpo_none(overlap, mps1, mpo)
-            # print(f"{overlap.shape=}")
+            overlap = mps_mpo_none(overlap, mps1, mpo, bk)
             backward = False
         else:
-            # print(f"{mps1.shape=} {mpo.shape=} {mps2.shape=}")
             if conj:
-                overlap = mps_mpo_mps(
-                    overlap, mps1, mpo, mps2.conj(), backward)
+                overlap = mps_mpo_mps(overlap, mps1, mpo, bk.conj(mps2), backward, bk)
             else:
-                overlap = mps_mpo_mps(
-                    overlap, mps1, mpo, mps2, backward)
-            # print(f"{overlap.shape=}")
+                overlap = mps_mpo_mps(overlap, mps1, mpo, mps2, backward, bk)
             backward = True
-        i += 1
     
     if backward:
-        overlap = Tensordot(overlap, np.array([1]).reshape(1, 1, 1), axes=[(0, 1, 2), (0, 1, 2)])
-    
+        overlap = bk.tensordot(overlap, bk.array([1]).reshape(1, 1, 1), axes=[(0, 1, 2), (0, 1, 2)])
     else:
-        overlap = Tensordot(overlap, np.array([1]).reshape(1, 1, 1), axes=[(0, 1), (0, 1)])
+        overlap = bk.tensordot(overlap, bk.array([1]).reshape(1, 1, 1), axes=[(0, 1), (0, 1)])
         
         ord_overlap = len(overlap.shape)
         lst = [i for i in range(ord_overlap)]
         
-        overlap = overlap.transpose(
-            rearrange_list_by_values(lst, [ord_overlap-1], [1])
+        overlap = bk.transpose(
+            overlap, rearrange_list_by_values(lst, [ord_overlap-1], [1])
         )
     
-    # print(f"{overlap.shape=}")
-
-    return overlap
+    return bk.to_cpu(overlap)
 
 
 def MPS_MPO_multiplication(
     MPS: list[npt.NDArray],
     MPO: list[npt.NDArray],
-):
+    bk: Backend = Backend('auto')
+) -> npt.NDArray:
     
     """
     Overlap between MPS, MPO, and MPS
@@ -204,31 +192,24 @@ def MPS_MPO_multiplication(
     assert len(MPS) == len(MPO), f"{len(MPS)=} != {len(MPO)=}"
     
     for i in range(len(MPS)):
-        
         assert MPS[i].shape[2] == MPO[i].shape[3], f"MPS1[{i}].shape[2]={MPS[i].shape[2]} != MPO[{i}].shape[3]={MPO[i].shape[3]}"
-        
-        # print(f"MPS1[{i}].shape={MPS1[i].shape} MPO[{i}].shape={MPO[i].shape} MPS2[{i}].shape={MPS2[i].shape}")
     
-    overlap = np.array([1]).reshape(1, 1, 1)
+    overlap = bk.array([1]).reshape(1, 1, 1)
     backward = True    
     
-    i = 0
     for mps, mpo in zip(MPS, MPO):
-        # print(f"Zippers {i}")
-        # print(f"{mps1.shape=} {mpo.shape=} {mps2=}")
-        overlap = mps_mpo_none(overlap, mps, mpo)
-        i += 1
+        overlap = mps_mpo_none(overlap, mps, mpo, bk)
     
-    overlap = Tensordot(overlap, np.array([1]).reshape(1, 1, 1), axes=[(0, 1), (0, 1)])   
+    overlap = bk.tensordot(overlap, bk.array([1]).reshape(1, 1, 1), axes=[(0, 1), (0, 1)])   
     ord_overlap = len(overlap.shape)
     lst = [i for i in range(ord_overlap)]
     
-    overlap = overlap.transpose(
-        rearrange_list_by_values(lst, [ord_overlap-1], [1])
+    overlap = bk.transpose(
+        overlap, rearrange_list_by_values(lst, [ord_overlap-1], [1])
     )
-    overlap = overlap.reshape(overlap.shape[2:])
+    overlap = bk.reshape(overlap, overlap.shape[2:])
     
-    return overlap
+    return bk.to_cpu(overlap)
 
 
 def contract_MPS(MPS: list[npt.NDArray]) -> npt.NDArray:
@@ -333,28 +314,29 @@ def mps_mpo_mps(
     mpo: npt.NDArray,
     mps2: npt.NDArray,
     backward: bool = True,
-):
+    bk: Backend = Backend('auto')
+) -> npt.NDArray:
     
-    new = mps_mpo_none(tensor, mps1, mpo)
+    new = mps_mpo_none(tensor, mps1, mpo, bk)
     
     if backward:
-        new = Tensordot(new, mps2, axes=[(2, len(new.shape)-1), (0, 2)])
+        new = bk.tensordot(new, mps2, axes=[(2, len(new.shape)-1), (0, 2)])
         
         ord_new = len(new.shape)
         lst = [i for i in range(ord_new)]
         
-        new = new.transpose(
-            rearrange_list_by_values(lst, [ord_new-1], [2])
+        new = bk.transpose(
+            new, rearrange_list_by_values(lst, [ord_new-1], [2])
         )
     
     else:
-        new = Tensordot(new, mps2, axes=[(len(new.shape)-1), (2)])
+        new = bk.tensordot(new, mps2, axes=[(len(new.shape)-1), (2)])
         
         ord_new = len(new.shape)
         lst = [i for i in range(ord_new)]
         
-        new = new.transpose(
-            rearrange_list_by_values(lst, [ord_new-1, ord_new-2], [2, 4])
+        new = bk.transpose(
+            new, rearrange_list_by_values(lst, [ord_new-1, ord_new-2], [2, 4])
         )
     
     return new
@@ -388,25 +370,26 @@ def MPS_MPO_MPS_env(
 def mps_mpo_none(
     tensor: npt.NDArray,
     mps1: npt.NDArray,
-    mpo: npt.NDArray
+    mpo: npt.NDArray,
+    bk: Backend = Backend('auto')
 ) -> npt.NDArray:
     
-    new = Tensordot(tensor, mps1, axes=[(0), (0)])
+    new = bk.tensordot(tensor, mps1, axes=[(0), (0)])
     
     ord_new = len(new.shape)
     lst = [i for i in range(ord_new)]
     
-    new = new.transpose(
-        rearrange_list_by_values(lst, [ord_new-2], [0])
+    new = bk.transpose(
+        new, rearrange_list_by_values(lst, [ord_new-2], [0])
     )
     
-    new = Tensordot(new, mpo, axes=[(1, len(new.shape)-1), (0, 3)])
+    new = bk.tensordot(new, mpo, axes=[(1, len(new.shape)-1), (0, 3)])
     
     ord_new = len(new.shape)
     lst = [i for i in range(ord_new)]
     
-    new = new.transpose(
-        rearrange_list_by_values(lst, [ord_new-2], [1])
+    new = bk.transpose(
+        new, rearrange_list_by_values(lst, [ord_new-2], [1])
     )
     
     return new

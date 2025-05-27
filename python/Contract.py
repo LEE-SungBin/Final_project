@@ -14,6 +14,7 @@ import multiprocessing as mp
 
 from python.utils import round_sig, print_traceback
 from python.memory import get_free_memory_windows, tensor_size_in_bytes, format_memory_size
+from python.Backend import Backend
 
 
 def Contract(
@@ -28,6 +29,7 @@ def Contract(
     # space_limit: int = 17, # * In GB
     backend: str = 'numpy',
     gpu: bool = False,
+    bk: Backend = Backend('auto')
 ) -> npt.NDArray:
 
     """
@@ -59,13 +61,11 @@ def Contract(
     now = time.perf_counter()
 
     if gpu:
-        import torch
-        device = 'cuda' if torch.cuda.is_available() else 'cpu'
-        operands = [torch.from_numpy(tensor).to(device).to(torch.complex64) if isinstance(tensor, np.ndarray) else tensor.to(device).to(torch.complex64) for tensor in operands]
+        operands = [bk.to_device(tensor) if isinstance(tensor, np.ndarray) else tensor for tensor in operands]
         backend = 'torch'
         out = None
         for i, tensor in enumerate(operands):
-            assert torch.isfinite(tensor).all(), (
+            assert bk.isfinite(tensor).all(), (
                 f"operand {i} is not finite\n"
                 f"operands[{i}].shape={operands[i].shape}\n"
                 f"operands[{i}]={operands[i]}"
@@ -102,7 +102,7 @@ def Contract(
         )
 
         if gpu : 
-            result = result.cpu().numpy()
+            result = bk.to_cpu(result)
         
         return result
 
