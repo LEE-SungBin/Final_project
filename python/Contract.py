@@ -26,8 +26,19 @@ def Contract(
     now = time.perf_counter()
 
     try:
+        # Convert operands to complex dtype if needed
+        complex_operands = []
+        for op in operands:
+            if bk.lib == "torch":
+                if not op.is_complex():
+                    op = op.to(dtype=bk.complex)
+            else:
+                if not np.iscomplexobj(op):
+                    op = op.astype(bk.complex)
+            complex_operands.append(op)
+
         # Only pass the subscripts and operands to einsum, let the backend handle dtype
-        result = bk.einsum(subscripts, *operands)
+        result = bk.einsum(subscripts, *complex_operands)
 
         if bk.lib == "torch": 
             result = bk.to_cpu(result)
@@ -60,6 +71,18 @@ def Tensordot(
 ) -> npt.NDArray:
     
     now = time.perf_counter()
+
+    # Convert tensors to complex dtype if needed
+    if bk.lib == "torch":
+        if not tensor1.is_complex():
+            tensor1 = tensor1.to(dtype=bk.complex)
+        if not tensor2.is_complex():
+            tensor2 = tensor2.to(dtype=bk.complex)
+    else:
+        if not np.iscomplexobj(tensor1):
+            tensor1 = tensor1.astype(bk.complex)
+        if not np.iscomplexobj(tensor2):
+            tensor2 = tensor2.astype(bk.complex)
 
     assert bk.isfinite(tensor1).all(), f"tensor1 is not finite\n{tensor1=}"
     assert bk.isfinite(tensor2).all(), f"tensor2 is not finite\n{tensor2=}"
