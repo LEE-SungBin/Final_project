@@ -123,13 +123,14 @@ def Gamma_Lambda_MPS(
     MPS: list[npt.NDArray],
     Dcut: int | None = None,
     verbose: bool = False,
+    bk: Backend = Backend('auto')
 ):
     """
         2           2
         |           |
     0 -- -- 1   0 -- -- 1
     """
-    check_mps(MPS)
+    check_mps(MPS, bk)
     len_MPS = len(MPS)
     
     norm = MPS_MPS_overlap(MPS, MPS)
@@ -151,8 +152,8 @@ def Gamma_Lambda_MPS(
     for it in range(len_MPS):
         if verbose:
             print(f"{it}, {left_prod.shape=}, {right_can[it].shape=}")
-        tensor = Tensordot(left_prod, right_can[it], axes=[(1), (0)])
-        matrix = tensor.transpose(0,2,1).reshape(
+        tensor = bk.tensordot(left_prod, right_can[it], axes=[(1), (0)])
+        matrix = bk.transpose(tensor, (0,2,1)).reshape(
             -1, tensor.shape[1])
 
         U, S, Vh = SVD(matrix, Skeep=1.e-8, Nkeep=Dcut)
@@ -167,12 +168,13 @@ def Gamma_Lambda_MPS(
         
         left_prod = bk.diag(S) @ Vh
         
-        left_can = U.reshape(
-            tensor.shape[0], tensor.shape[2], -1).transpose(0,2,1)
+        left_can = bk.transpose(
+            U.reshape(
+                tensor.shape[0], tensor.shape[2], -1), (0,2,1))
         
         assert left_isometry(left_can) < 1.e-6, f"left canonical error, {left_isometry(left_can)=}"
         
-        Gammas.append(Tensordot(
+        Gammas.append(bk.tensordot(
             bk.diag(1/Lambdas[it][0]), left_can, axes=[(1), (0)]))
         
     return Gammas, Lambdas        
@@ -181,7 +183,8 @@ def Gamma_Lambda_MPS(
 def dist_from_vidal_mps(
     Gammas: list[npt.NDArray],
     Lambdas: list[list[npt.NDArray]],
-    return_list: bool = False
+    return_list: bool = False,
+    bk: Backend = Backend('auto')
 ) -> list | float:
     
     distance = 0
@@ -192,16 +195,16 @@ def dist_from_vidal_mps(
     for it, gamma in enumerate(Gammas):
         # print(f"\n{it}", end=" ")
         
-        approx = left_gauge(gamma, Lambdas[it][0])
-        left = scale_inv_id(approx)
+        approx = left_gauge(gamma, Lambdas[it][0], bk)
+        left = scale_inv_id(approx, bk)
         
         # print(f"left: {round_sig(left)}", end=" ")
         # print(f"\n{round_sig(approx)}")
         distance += left
         dists[it] += left / 2
         
-        approx = right_gauge(gamma, Lambdas[it][1])
-        right = scale_inv_id(approx)
+        approx = right_gauge(gamma, Lambdas[it][1], bk)
+        right = scale_inv_id(approx, bk)
         
         # print(f"right: {round_sig(right)}", end=" ")
         # print(f"\n{round_sig(approx)}")
@@ -215,7 +218,8 @@ def dist_from_vidal_mps(
 
 
 def get_Neumann_entropy(
-    MPS: list[npt.NDArray]
+    MPS: list[npt.NDArray],
+    bk: Backend = Backend('auto')
 ) -> npt.NDArray:
     
     """
@@ -228,11 +232,12 @@ def get_Neumann_entropy(
     Neumann_entropy = []
     
     for it in range(len(MPS)-1):
-        site_canonical = site_canonical_MPS(MPS, loc=it)
+        site_canonical = site_canonical_MPS(MPS, loc=it, bk=bk)
         _, _, sigma = site_to_bond_canonical_MPS(
             orthogonality_center=site_canonical[it],
             isometry=site_canonical[it+1],
             dirc = "right",
+            bk=bk
         )
         
         # print(f"{sigma=}")
@@ -244,7 +249,7 @@ def get_Neumann_entropy(
     return Neumann_entropy
 
 
-def left_gauge(gamma, Lambda):
+def left_gauge(gamma, Lambda, bk):
     
     assert len(gamma.shape) == 3
     assert len(Lambda.shape) == 1
@@ -255,7 +260,7 @@ def left_gauge(gamma, Lambda):
         )
 
 
-def right_gauge(gamma, Lambda):
+def right_gauge(gamma, Lambda, bk):
     
     assert len(gamma.shape) == 3
     assert len(Lambda.shape) == 1
@@ -266,12 +271,12 @@ def right_gauge(gamma, Lambda):
         )
 
 
-def scale_inv_id(approx):
+def scale_inv_id(approx, bk):
     
     id = bk.identity(approx.shape[0])
     
     tensor = approx/np.trace(approx)-id/np.trace(id)
-    _, S, _ = SVD(tensor)
+    _, S, _ = SVD(tensor, bk=bk)
     
     return np.sum(S)
 
@@ -372,10 +377,6 @@ def move_site_left(
     
     assert right_isometry(temp[loc], bk) < 1.e-6, f"Move left error, {right_isometry(temp[loc], bk)=}"
     
-    # Convert back to numpy arrays if needed
-    if bk.lib == "torch":
-        temp = [bk.to_cpu(tensor) for tensor in temp]
-    
     return temp
     
     
@@ -406,11 +407,7 @@ def move_site_right(
     temp[loc+1] = Contract("ia,ab,bjk->ijk", bk.diag(S), Vh, right, bk=bk)
     
     assert left_isometry(temp[loc], bk) < 1.e-6, f"Move right error, {left_isometry(temp[loc], bk)=}"
-    
-    # Convert back to numpy arrays if needed
-    if bk.lib == "torch":
-        temp = [bk.to_cpu(tensor) for tensor in temp]
-    
+
     return temp
 
 
@@ -495,10 +492,6 @@ def tensor_to_mps(tensor: npt.NDArray, bk: Backend = Backend('auto')) -> list[np
     
     assert MPS[0].shape[0] == 1
     assert MPS[-1].shape[1] == 1
-    
-    # Convert back to numpy arrays if needed
-    if bk.lib == "torch":
-        MPS = [bk.to_cpu(tensor) for tensor in MPS]
     
     return MPS
 

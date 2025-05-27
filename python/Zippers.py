@@ -212,19 +212,19 @@ def MPS_MPO_multiplication(
     return bk.to_cpu(overlap)
 
 
-def contract_MPS(MPS: list[npt.NDArray]) -> npt.NDArray:
+def contract_MPS(MPS: list[npt.NDArray], bk: Backend = Backend('auto')) -> npt.NDArray:
     
     absolute = MPS[0]
     
     for it in range(1, len(MPS)):
-        absolute = Tensordot(absolute, MPS[it], axes=((1,), (0,)))
+        absolute = bk.tensordot(absolute, MPS[it], axes=((1,), (0,)))
         ord_absolute = len(absolute.shape)
         lst = [i for i in range(ord_absolute)]
-        absolute = absolute.transpose(
-            rearrange_list_by_values(lst, [ord_absolute-2], [1])
+        absolute = bk.transpose(
+            absolute, rearrange_list_by_values(lst, [ord_absolute-2], [1])
         )
     
-    absolute = Tensordot(absolute, np.identity(absolute.shape[0]), axes=((0,1), (0,1)))
+    absolute = bk.tensordot(absolute, bk.identity(absolute.shape[0]), axes=((0,1), (0,1)))
 
     assert len(absolute.shape) == len(MPS)
 
@@ -233,6 +233,7 @@ def contract_MPS(MPS: list[npt.NDArray]) -> npt.NDArray:
 
 def Hamiltonian_to_MPO(
     Hamiltonian: npt.NDArray,
+    bk: Backend = Backend('auto')
 ):
     
     tensor = deepcopy(Hamiltonian)
@@ -250,7 +251,7 @@ def Hamiltonian_to_MPO(
         transpose.append(it)
         transpose.append(n_sites+it)
     
-    tensor = tensor.transpose(tuple(transpose))
+    tensor = bk.transpose(tensor, tuple(transpose))
     tensor = tensor.reshape((1,)+tensor.shape+(1,))
     
     MPO = []
@@ -263,11 +264,11 @@ def Hamiltonian_to_MPO(
         
         Q, R = QR(matrix)
         
-        MPO.append(Q.reshape(tensor.shape[0:3]+(-1,)).transpose(0, 3, 1, 2))
+        MPO.append(bk.transpose(Q.reshape(tensor.shape[0:3]+(-1,)), (0, 3, 1, 2)))
         
         tensor = R.reshape((-1,)+tensor.shape[3:])
     
-    MPO.append(tensor.transpose(0, 3, 1, 2))
+    MPO.append(bk.transpose(tensor, (0, 3, 1, 2)))
     
     return MPO
     
@@ -367,7 +368,7 @@ def MPS_MPO_MPS_env(
         2|
     """
     
-    tensor = np.array([[[1.0]]])
+    tensor = bk.array([[[1.0]]])
     
     for mps1, mpo, mps2 in zip(MPS1, MPO, MPS2):
         tensor = mps_mpo_mps(tensor, mps1, mpo, mps2)

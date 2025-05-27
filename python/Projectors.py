@@ -29,6 +29,7 @@ def get_projector(
     Skeep: float = 1e-2,
     mode: str = "truncate",
     get_loss: bool = True,
+    bk: Backend = Backend('auto')
 ) -> tuple[npt.NDArray, npt.NDArray, float] | tuple[npt.NDArray, npt.NDArray, float, float, npt.NDArray, npt.NDArray]:
 
     """
@@ -65,12 +66,12 @@ def get_projector(
     if Ausize * Adsize <= cutoff or mode == "full":
         # print(f"full")
         
-        identity = np.identity(Ausize*Adsize)
+        identity = bk.identity(Ausize*Adsize)
         # print(f"loss=0.0")
 
         P1 = identity.reshape(Ausize, Adsize, Ausize*Adsize)
-        P2 = identity.reshape(
-            Ausize*Adsize, Ausize, Adsize).transpose(1, 2, 0)
+        P2 = bk.transpose(identity.reshape(
+            Ausize*Adsize, Ausize, Adsize), (1, 2, 0))
 
         # original = Contract(
         #     "axi,bxj,ayl,byk->ijkl", Au, Ad, Aunn, Adnn
@@ -82,15 +83,15 @@ def get_projector(
         # real_loss = np.linalg.norm(original-new)/np.linalg.norm(original)
         real_loss = 0
 
-        return P1, P2, 1.0, 1.0, np.array([1.0]), np.array([1.0])
+        return P1, P2, 1.0, 1.0, bk.array([1.0]), bk.array([1.0])
 
     else:
         ABABDagger = Contract(
-            "ijab,klcd->ijklabcd", Au, Au.conj(), bk=Ad
+            "ijab,klcd->ijklabcd", Au, Au.conj(), bk=bk
         ).reshape(Ausize * Adsize, Ausize * Adsize)
 
         CDCDDagger = Contract(
-            "ijab,klcd->ijklabcd", Aunn, Adnn.conj(), bk=Ad
+            "ijab,klcd->ijklabcd", Aunn, Adnn.conj(), bk=bk
         ).reshape(Ausize * Adsize, Ausize * Adsize)
 
         # eigval1, eigvec1 = EIGH(ABABDagger, Nkeep=int(np.sqrt(Ausize*Adsize)))

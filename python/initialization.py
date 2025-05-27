@@ -56,13 +56,15 @@ def random_initialization(
         
         tensor = bk.randn(*bond_shape)
         mps_at_site_it = bk.to_device(tensor)
-        temp_matrix = mps_at_site_it.transpose(0, 2, 1).reshape(-1, mps_at_site_it.shape[1])
+        temp_matrix = bk.transpose(mps_at_site_it, (0, 2, 1)).reshape(-1, mps_at_site_it.shape[1])
         
         left_iso, _ = QR(temp_matrix)
         
-        mps = left_iso.reshape(
-            mps_at_site_it.shape[0], mps_at_site_it.shape[2], mps_at_site_it.shape[1]
-        ).transpose(0, 2, 1)
+        mps = bk.transpose(
+            left_iso.reshape(
+                mps_at_site_it.shape[0], mps_at_site_it.shape[2], mps_at_site_it.shape[1]
+            ), (0, 2, 1)
+        )
 
         init_MPS.append(mps)
     
