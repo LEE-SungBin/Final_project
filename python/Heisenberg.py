@@ -176,7 +176,7 @@ def XY_model(
     
     for it in range(n_sites):
         
-        MPO = bk.zeros(Hamiltonian_shape, dtype=complex)
+        MPO = bk.zeros(Hamiltonian_shape, dtype=bk.complex)
         
         MPO[:,:,0,0] = identity
         MPO[:,:,1,0] = S_x

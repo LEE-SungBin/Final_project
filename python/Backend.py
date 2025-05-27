@@ -38,9 +38,9 @@ class Backend:
         return x
 
     def array(self, x: Any, dtype=None) -> Union[np.ndarray, torch.Tensor]:
+        current_dtype = dtype if dtype is not None else self.complex
         if self.lib == "torch":
             if isinstance(x, list):
-                # Handle list of 0-d tensors/arrays by converting to Python scalars
                 processed_x = []
                 for item in x:
                     if isinstance(item, torch.Tensor) and item.ndim == 0:
@@ -51,12 +51,11 @@ class Backend:
                         processed_x.append(item)
                 x = processed_x
             if isinstance(x, torch.Tensor):
-                return x.clone().detach().to(self.device, dtype=dtype)
-            return self.xp.tensor(x, dtype=dtype, device=self.device)
+                return x.clone().detach().to(self.device, dtype=current_dtype)
+            return self.xp.tensor(x, dtype=current_dtype, device=self.device)
         
         # Numpy backend
         if isinstance(x, list):
-            # Handle list of 0-d tensors/arrays by converting to Python scalars
             processed_x = []
             for item in x:
                 if isinstance(item, torch.Tensor) and item.ndim == 0:
@@ -66,27 +65,31 @@ class Backend:
                 else:
                     processed_x.append(item)
             x = processed_x
-        return self.xp.array(x, dtype=dtype)
+        return self.xp.array(x, dtype=current_dtype)
 
     def zeros(self, shape: Union[int, tuple], dtype=None) -> Union[np.ndarray, torch.Tensor]:
+        current_dtype = dtype if dtype is not None else self.complex
         if self.lib == "torch":
-            return self.xp.zeros(shape, dtype=dtype, device=self.device)
-        return self.xp.zeros(shape, dtype=dtype)
+            return self.xp.zeros(shape, dtype=current_dtype, device=self.device)
+        return self.xp.zeros(shape, dtype=current_dtype)
 
     def ones(self, shape: Union[int, tuple], dtype=None) -> Union[np.ndarray, torch.Tensor]:
+        current_dtype = dtype if dtype is not None else self.complex
         if self.lib == "torch":
-            return self.xp.ones(shape, dtype=dtype, device=self.device)
-        return self.xp.ones(shape, dtype=dtype)
+            return self.xp.ones(shape, dtype=current_dtype, device=self.device)
+        return self.xp.ones(shape, dtype=current_dtype)
 
     def eye(self, x: int, dtype=None) -> Union[np.ndarray, torch.Tensor]:
+        current_dtype = dtype if dtype is not None else self.complex
         if self.lib == "torch":
-            return self.xp.eye(x, dtype=dtype, device=self.device)
-        return self.xp.eye(x, dtype=dtype)
+            return self.xp.eye(x, dtype=current_dtype, device=self.device)
+        return self.xp.eye(x, dtype=current_dtype)
 
     def identity(self, x: int, dtype=None) -> Union[np.ndarray, torch.Tensor]:
         return self.eye(x, dtype)
 
     def diag(self, x: Union[np.ndarray, torch.Tensor], k: int = 0, dtype=None) -> Union[np.ndarray, torch.Tensor]:
+
         if self.lib == "torch":
             return self.xp.diag(x, k).type(self.complex if dtype is None else dtype)
         return self.xp.diag(x, k)

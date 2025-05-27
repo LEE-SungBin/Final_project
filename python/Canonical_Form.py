@@ -31,8 +31,8 @@ def site_canonical_MPS(
     for it, mps in enumerate(MPS):
         copy.append(bk.to_device(deepcopy(mps)))
     
-    prod_left = bk.identity(copy[0].shape[0], dtype=np.complex128)
-    prod_right = bk.identity(copy[-1].shape[1], dtype=np.complex128)
+    prod_left = bk.identity(copy[0].shape[0], dtype=bk.complex)
+    prod_right = bk.identity(copy[-1].shape[1], dtype=bk.complex)
     
     for it in range(loc):
         matrix = Contract("ia,ajk->ijk", prod_left, copy[it], bk=bk)
