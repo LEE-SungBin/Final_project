@@ -59,9 +59,8 @@ def Contract(
     now = time.perf_counter()
 
     try:
-        result = oe.contract(
-            subscripts, *operands, out=out, dtype=dtype, order=order, casting=casting, 
-            use_blas=use_blas, optimize=optimize, backend=bk.lib
+        result = bk.einsum(
+            subscripts, *operands, backend=bk.lib
         )
 
         if bk.lib == "torch": 
