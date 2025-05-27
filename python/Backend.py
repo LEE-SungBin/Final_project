@@ -89,7 +89,7 @@ class Backend:
         return self.eye(x, dtype)
 
     def diag(self, x: Union[np.ndarray, torch.Tensor], k: int = 0, dtype=None) -> Union[np.ndarray, torch.Tensor]:
-
+        x = self.array(x)
         if self.lib == "torch":
             return self.xp.diag(x, k).type(self.complex if dtype is None else dtype)
         return self.xp.diag(x, k)

@@ -58,11 +58,7 @@ def site_canonical_MPS(
         assert right_isometry(copy[it], bk) < 1.e-6, f"copy[{it}] not right isometry\nright_isometry(copy[{it}])={right_isometry(copy[it], bk)}\ncopy[{it}]={copy[it]}"
     
     copy[loc] = Contract("ia,abk,bj->ijk", prod_left, copy[loc], prod_right, bk=bk)
-    
-    # Convert back to numpy arrays if needed
-    if bk.lib == "torch":
-        copy = [bk.to_cpu(tensor) for tensor in copy]
-    
+
     return copy
 
 
@@ -431,12 +427,48 @@ def contract_MPS(MPS: list[npt.NDArray], bk: Backend = Backend('auto')) -> npt.N
 
 def left_isometry(single_MPS: npt.NDArray, bk: Backend = Backend('auto')) -> float:
     
-    return bk.norm(left_prod_MPS(single_MPS, bk) - bk.identity(single_MPS.shape[1])) / bk.norm(bk.identity(single_MPS.shape[1]))
+    prod_val = left_prod_MPS(single_MPS, bk)
+    ident_val_shape = single_MPS.shape[1] # As per current code
+
+    # Determine dtype for converting prod_val to backend's array type
+    # Use prod_val's own dtype if it's a valid numerical type, otherwise default to bk.complex
+    prod_val_bk = bk.array(prod_val, dtype=bk.complex)
+
+    # Create identity matrix of the same backend type and matching dtype as prod_val_bk
+    ident_val_bk = bk.identity(ident_val_shape, dtype=prod_val_bk.dtype)
+
+    numerator = bk.norm(prod_val_bk - ident_val_bk)
+    
+    # Denominator: norm of a consistently typed identity matrix
+    denominator_ident = bk.identity(ident_val_shape, dtype=prod_val_bk.dtype)
+    denominator = bk.norm(denominator_ident)
+    
+    if denominator == 0:
+        # Fallback if norm of identity is zero (e.g., for a 0-dimensional identity)
+        return bk.norm(prod_val_bk - ident_val_bk) 
+    return numerator / denominator
 
 
 def right_isometry(single_MPS: npt.NDArray, bk: Backend = Backend('auto')) -> float:
     
-    return bk.norm(right_prod_MPS(single_MPS, bk) - bk.identity(single_MPS.shape[0])) / bk.norm(bk.identity(single_MPS.shape[0]))
+    prod_val = right_prod_MPS(single_MPS, bk)
+    ident_val_shape = single_MPS.shape[0] # As per current code
+
+    # Determine dtype for converting prod_val to backend's array type
+    prod_val_bk = bk.array(prod_val, dtype=bk.complex)
+
+    # Create identity matrix of the same backend type and matching dtype as prod_val_bk
+    ident_val_bk = bk.identity(ident_val_shape, dtype=prod_val_bk.dtype)
+
+    numerator = bk.norm(prod_val_bk - ident_val_bk)
+
+    # Denominator: norm of a consistently typed identity matrix
+    denominator_ident = bk.identity(ident_val_shape, dtype=prod_val_bk.dtype)
+    denominator = bk.norm(denominator_ident)
+    
+    if denominator == 0:
+        return bk.norm(prod_val_bk - ident_val_bk)
+    return numerator / denominator
 
 
 def left_prod_MPS(single_MPS: npt.NDArray, bk: Backend = Backend('auto')) -> npt.NDArray:

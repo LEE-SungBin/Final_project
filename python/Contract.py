@@ -26,19 +26,8 @@ def Contract(
     now = time.perf_counter()
 
     try:
-        # Convert operands to complex dtype if needed
-        complex_operands = []
-        for op in operands:
-            if bk.lib == "torch":
-                if not op.is_complex():
-                    op = op.type(bk.complex)
-            else:
-                if not np.iscomplexobj(op):
-                    op = op.astype(bk.complex)
-            complex_operands.append(op)
-
         # Only pass the subscripts and operands to einsum, let the backend handle dtype
-        result = bk.einsum(subscripts, *complex_operands)
+        result = bk.einsum(subscripts, *operands)
 
         return result
 
