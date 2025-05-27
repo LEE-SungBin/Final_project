@@ -14,194 +14,48 @@ from python.Backend import Backend
 
 def SVD(
     matrix: npt.NDArray,
+    full_SVD: bool = False,
     Nkeep: int | None = None,
     Skeep: float | None = None,
-    norm_Keep: float | None = None,
-    use_sklearn: bool = True,
-    Oversampling: int | None = None,
-    Iteration: int = 5,
-    threshold: float = 1.e-8,
-    ifloss: bool = False,
-    full_SVD: bool = False,
     bk: Backend = Backend('auto')
-) -> tuple[npt.NDArray, npt.NDArray, npt.NDArray] | tuple[npt.NDArray, npt.NDArray, npt.NDArray, float]:
+) -> tuple[npt.NDArray, npt.NDArray, npt.NDArray]:
     
     """
-    Return U, S, Vh
+    Parameters
+    ----------
+    matrix : array_like
+        A real or complex array with a.ndim >= 2.
+    full_SVD : bool, optional
+        If True, compute full SVD. If False, compute reduced SVD.
+    Nkeep : int, optional
+        Number of singular values to keep.
+    Skeep : float, optional
+        Threshold for singular values to keep.
     
-    For arbitary complex matrix,
-    matrix = U @ np.diag(S) @ Vh where
-    U is left isometry (U.conj().T @ U = I)
-    S is real diagonal (singular values = abs(eigenvalues))
-    Vh is right isometry (Vh @ Vh.conj().T = I)
+    Returns
+    -------
+    U : ndarray
+        Unitary matrix having left singular vectors as columns.
+    S : ndarray
+        The singular values, sorted in non-increasing order.
+    Vh : ndarray
+        Unitary matrix having right singular vectors as rows.
     """
-
-    assert type(matrix) == type(
-        np.array([1])), f"{type(matrix)=} != numpy.ndarray"
-    # assert np.isfinite(matrix).all(), f"Matrix not finite, {matrix=}"
-    assert len(matrix.shape) == 2, f"{len(matrix.shape)=} != 2"
-    # stable_matrix = deepcopy(matrix)
-    stable_matrix = bk.to_device(matrix)
     
-    if np.isnan(stable_matrix).any() or np.isinf(stable_matrix).any():
-        print("Data contains NaN or Inf values")
-        # Optionally, replace NaNs or Infs
-        stable_matrix = np.nan_to_num(stable_matrix, nan=0.0, posinf=0.0, neginf=0.0)
-
-    if np.prod(matrix.shape) * np.min(matrix.shape) > 10**9:
-        print(f"SVD big matrix, shape={matrix.shape}: ", end="")
-
-    now = time.perf_counter()
-    # print(f"SVD, {matrix.shape=} {Nkeep=} {Skeep=}", end=" ")
-
-    # if np.linalg.norm(matrix-matrix.conj())/np.linalg.norm(matrix) < 1.e-8:
-
-    if full_SVD or Nkeep == 0:
-        try:
-            U, S, Vh = bk.svd(stable_matrix, full_matrices=False)
-        except np.linalg.LinAlgError as e:
-            print(f"np.linalg.svd error\n{e}")
-            print_traceback(e)
-            print(f"Trying random SVD")
-            U, S, Vh = random_SVD(stable_matrix)
-        # return U, S, Vh
-
-    elif norm_Keep is not None:
-        try:
-            U, S, Vh = bk.svd(stable_matrix, full_matrices=False)
-        except np.linalg.LinAlgError as e:
-            print(f"np.linalg.svd error\n{e}")
-            print_traceback(e)
-            print(f"Trying random SVD")
-            U, S, Vh = random_SVD(stable_matrix)
-        
-        squares = S ** 2
-        full_norm = squares.sum()
-        # Cumulative sum from the end, then reverse
-        # cumsum_from_end = np.sqrt(np.cumsum(squares[::-1])[::-1])
-        cumsum_from_end = np.cumsum(squares[::-1])[::-1]
-        
-        # print(f"{squares=}")
-        # print(f"{cumsum_from_end=}")
-        
-        # Find indices where cumsum exceeds threshold
-        mask = cumsum_from_end > norm_Keep
-        # mask = cumsum_from_end > norm_Keep * full_norm
-        # If no value exceeds threshold, return empty array
-        if not np.any(mask):
-            pass
-        
-        else:
-            last_idx = np.where(mask)[0][-1]
-            # Return elements up to and including that index
-            U = U[:, :last_idx + 1]
-            Vh = Vh[:last_idx + 1, :]
-            S = S[:last_idx + 1]
-
-    elif Nkeep is not None and Nkeep < min(matrix.shape) * 0.1:
-        if use_sklearn and np.linalg.norm(matrix-matrix.conj())/np.linalg.norm(stable_matrix) < threshold and min(stable_matrix.shape) > 1:
-            try:
-                svd = TruncatedSVD(n_components=min(
-                    min(matrix.shape), Nkeep))
-
-                stable_matrix[np.abs(matrix) < 1.e-100] = 0
-                # stable_matrix[np.abs(matrix.max() - matrix) <
-                #               np.abs(matrix.max()) * threshold] = matrix.max()
-                # stable_matrix[np.abs(matrix - matrix.min()) <
-                #               np.abs(matrix.min()) * threshold] = matrix.min()
-                # * Reduced U matrix
-                U = svd.fit_transform(
-                    np.real(stable_matrix).astype(np.float64))
-                S = svd.singular_values_  # * The top n_components singular values
-                Vh = svd.components_
-
-                U = U[:, S > 0]
-                Vh = Vh[S > 0, :]
-                S = S[S > 0]
-                U = U / S
-
-            except Exception as e:
-                print(f"Sklearn SVD error\n{e}Trying random SVD")
-                print_traceback(e)
-                
-                try:
-                    U, S, Vh = random_SVD(stable_matrix, Nkeep=Nkeep)
-                except np.linalg.LinAlgError as e:
-                    print(f"Random SVD error\n{e}\nnp.max(matrix)={round_sig(np.max(np.abs(stable_matrix)))} np.min(matrix)={round_sig(np.min(np.abs(stable_matrix)))}\nTrying np.linalg.svd")
-                    print_traceback(e)
-                    U, S, Vh = exact_SVD(matrix, stable_matrix, Nkeep, Skeep)
-                    
-        else:
-            try:
-                U, S, Vh = random_SVD(stable_matrix, Nkeep=Nkeep)
+    U, S, Vh = bk.svd(matrix, full_matrices=full_SVD)
     
-            except np.linalg.LinAlgError as e:
-                print(f"Random SVD error\n{e}\nnp.max(matrix)={round_sig(np.max(np.abs(stable_matrix)))} np.min(matrix)={round_sig(np.min(np.abs(stable_matrix)))}\nTrying np.linalg.svd")
-                print_traceback(e)
-                U, S, Vh = exact_SVD(matrix, stable_matrix, Nkeep, Skeep)
-
-    else:
-        try:
-            U, S, Vh = exact_SVD(matrix, stable_matrix, Nkeep, Skeep)
-
-        except np.linalg.LinAlgError as e:
-            print(f"{matrix.shape=}\n{np.max(np.abs(matrix))=} {np.min(np.abs(matrix))}\n{e}")
-            print_traceback(e)
-            
-            try:
-                U, S, Vh = random_SVD(stable_matrix)
-                return U, S, Vh
-            
-            except np.linalg.LinAlgError as e:
-                print(f"Random SVD error\n{e}\nnp.max(matrix)={round_sig(np.max(np.abs(stable_matrix)))} np.min(matrix)={round_sig(np.min(np.abs(stable_matrix)))}")
-                print_traceback(e)
-                sys.exit()
-
-    # S[S.max() - S < S.max() * threshold] = S.max()
-
-    # U = U[:, S > 0]
-    # Vh = Vh[S > 0, :]
-    # S = S[S > 0]
+    if Nkeep is not None:
+        U = U[:, :Nkeep]
+        S = S[:Nkeep]
+        Vh = Vh[:Nkeep, :]
     
-    # print(f"Before: {U=} {S=} {Vh=} {Skeep=}")
-
-    # Check if S is defined and not empty
-    if S is not None and len(S) > 0:
-        if Skeep is not None:
-            if S[0] > Skeep:
-                U = U[:, S > Skeep]
-                Vh = Vh[S > Skeep, :]
-                S = S[S > Skeep]
-            else:
-                U = U[:, :1]
-                Vh = Vh[:1, :]
-                S = S[:1]
+    if Skeep is not None:
+        mask = S > Skeep
+        U = U[:, mask]
+        S = S[mask]
+        Vh = Vh[mask, :]
     
-    # print(f"After: {U=} {S=} {Vh=}")
-
-# non_finite_mask = ~np.isfinite(array)
-
-    assert np.isfinite(
-        U).all(), f"SVD Error, Not finite {U.shape=}\n{~np.isfinite(U)=}\n{U[~np.isfinite(U)]=}\n{matrix.shape=}\n{~np.isfinite(matrix)=}\n{matrix[~np.isfinite(matrix)]}"
-    assert np.isfinite(
-        S).all(), f"SVD Error, Not finite {S.shape=}\n{~np.isfinite(S)=}\n{S[~np.isfinite(S)]=}\n{matrix.shape=}\n{~np.isfinite(matrix)=}\n{matrix[~np.isfinite(matrix)]}"
-    assert np.isfinite(
-        Vh).all(), f"SVD Error, Not finite {Vh.shape=}\n{~np.isfinite(Vh)=}\n{Vh[~np.isfinite(Vh)]=}\n{matrix.shape=}\n{~np.isfinite(matrix)=}\n{matrix[~np.isfinite(matrix)]}"
-
-    if np.prod(matrix.shape) * np.min(matrix.shape) > 10**9:
-        print(f"{round_sig(time.perf_counter()-now)}s")
-
-    if ifloss:
-        loss = np.linalg.norm(
-            matrix - U @ np.diag(S) @ Vh)/np.linalg.norm(matrix)
-
-        # print(f"Finished {round_sig(time.perf_counter()-now)}s")
-
-        return U, S, Vh, loss
-
-    else:
-        # print(f"Finished {round_sig(time.perf_counter()-now)}s")
-        return U, S, Vh
+    return U, S, Vh
 
 
 def exact_SVD(
@@ -296,71 +150,24 @@ def random_SVD(
 
 def EIGH(
     matrix: npt.NDArray,
-    Nkeep: int | None = None,
     bk: Backend = Backend('auto')
 ) -> tuple[npt.NDArray, npt.NDArray]:
     
-    
     """
-    Return eigvals, eigvecs
+    Parameters
+    ----------
+    matrix : array_like
+        A real or complex array with a.ndim >= 2.
     
-    Only for hermitian matrix,
-    matrix = eigvecs @ np.diag(eigvals) @ eigvecs.conj().T where
-    eigvecs is left isometry
-    eigvals is real diagonal (eigenvalues real only for hermitian matrix)
+    Returns
+    -------
+    eigenvalues : ndarray
+        The eigenvalues, sorted in non-increasing order.
+    eigenvectors : ndarray
+        The eigenvectors, sorted in non-increasing order.
     """
-
-    assert type(matrix) == type(
-        np.array([1])), f"{type(matrix)=} != numpy.ndarray"
-    assert np.isfinite(matrix).all(), f"Matrix not finite, {matrix=}"
-    assert len(matrix.shape) == 2, f"EIGH {len(matrix.shape)=} != 2"
-
-    assert matrix.shape[0] == matrix.shape[1], f"{matrix.shape[0]=} != {matrix.shape[1]=}"
-    # if not np.allclose(matrix, matrix.conj().T, rtol=1.e-8, atol=1.e-8):
     
-    if matrix.shape[0] == 1:
-        return matrix[0], np.diag([1])
-
-    try:
-        hermitian_error = np.linalg.norm(
-            matrix-matrix.conj().T)/np.linalg.norm(matrix)
-    except RuntimeWarning as e:
-        print(f"Hermitian error, {matrix.shape=}\n{e=}")
-        print_traceback(e)
-        print(f"{matrix=}")
-    
-    if hermitian_error > 1.e-6 or np.linalg.norm(matrix-matrix.conj().T) > 1.e-6:
-        print(f"matrix not hermitian\n{hermitian_error=}\n\n{matrix.shape=}\n{matrix=}")
-        # raise Exception(f"matrix not hermitian")
-    # print(f"hermitian, {round_sig(time.perf_counter()-now)}s", end=" ")
-
-    # stable_matrix = deepcopy(matrix)
-    stable_matrix = bk.to_device(matrix)
-
-    eigvals, eigvecs = exact_EIGH(matrix, stable_matrix, Nkeep=Nkeep)
-
-    # if eigvals is not None and len(eigvals) > 0:
-    #     if Skeep is not None:
-    #         try:
-    #             eigvecs = eigvecs[:, eigvals > Skeep]
-    #             eigvals = eigvals[eigvals > Skeep]
-
-    #         except Exception as e:
-    #             print(f"{e=}")
-    #             print_traceback(e)
-    #             print(f"{matrix=} {eigvals=} {eigvecs=}")
-
-    # eigvals[
-    # eigvals.max() - eigvals < eigvals.max() * threshold] = eigvals.max()
-
-    # print(f"eigh, {round_sig(time.perf_counter()-now)}s", end=" ")
-
-    assert np.isfinite(eigvals).all(
-    ), f"EIGH Error, Not finite {eigvals=}\n{matrix.shape=}\n{matrix=}"
-    assert np.isfinite(eigvecs).all(
-    ), f"EIGH Error, Not finite {eigvecs=}\n{matrix.shape=}\n{matrix=}"
-
-    return eigvals, eigvecs
+    return bk.eigh(matrix)
 
 
 def exact_EIGH(
@@ -442,47 +249,22 @@ def QR(
     matrix: npt.NDArray,
     bk: Backend = Backend('auto')
 ) -> tuple[npt.NDArray, npt.NDArray]:
+    
     """
-    Return Q, R
+    Parameters
+    ----------
+    matrix : array_like
+        A real or complex array with a.ndim >= 2.
     
-    For arbitary complex matrix with m >= n,
-    matrix = Q @ R where
-    Q is left isometry (Q.conj().T @ Q = I)
-    R is right triangular
+    Returns
+    -------
+    Q : ndarray
+        The orthogonal/unitary matrix.
+    R : ndarray
+        The upper triangular matrix.
     """
-
-    assert type(matrix) == type(
-        np.array([1])), f"{type(matrix)=} != numpy.ndarray"
-    # assert np.isfinite(matrix).all(), f"Matrix not finite, {matrix=}"
-    assert len(matrix.shape) == 2, f"{len(matrix.shape)=} != 2"
     
-    stable_matrix = bk.to_device(matrix)
-    
-    m, n = matrix.shape    
-    # if m < n:
-    #     print(f"{matrix.shape=}, m<n")
-        
-    #     R, Q = RQ(stable_matrix)
-    #     return Q.T, R.T
-    
-    # stable_matrix = deepcopy(matrix)
-    
-    if np.isnan(stable_matrix).any() or np.isinf(stable_matrix).any():
-        print("Data contains NaN or Inf values")
-        # Optionally, replace NaNs or Infs
-        stable_matrix = np.nan_to_num(stable_matrix, nan=0.0, posinf=0.0, neginf=0.0)
-
-    if np.prod(matrix.shape) * np.min(matrix.shape) > 10**9:
-        print(f"QR big matrix, shape={matrix.shape}: ", end="")
-    
-    try:
-        Q, R = bk.qr(stable_matrix, mode="reduced")
-    except np.linalg.LinAlgError as e:
-        print(f"np.linalg.qr error\n{e}")
-        print_traceback(e)
-        sys.exit()
-    
-    return Q, R
+    return bk.qr(matrix)
 
 
 def RQ(

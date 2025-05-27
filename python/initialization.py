@@ -1,6 +1,6 @@
 import numpy as np
 import numpy.typing as npt
-from python.Zippers import MPS_MPO_MPS_env
+from python.Backend import Backend
 from python.Decomposition import QR, SVD, EIGH
 from python.Contract import Contract
 from copy import deepcopy
@@ -9,7 +9,8 @@ from copy import deepcopy
 def random_initialization(
     Hamiltonian: list[npt.NDArray],
     NKeep: int,
-):
+    bk: Backend = Backend('auto')
+) -> list[npt.NDArray]:
     
     """
 
@@ -53,8 +54,8 @@ def random_initialization(
                 physical_bond
             ]
         
-        mps_at_site_it = np.random.rand(*bond_shape) + 1j * np.random.rand(*bond_shape)
-        
+        tensor = bk.randn(*bond_shape)
+        mps_at_site_it = bk.to_device(tensor)
         temp_matrix = mps_at_site_it.transpose(0, 2, 1).reshape(-1, mps_at_site_it.shape[1])
         
         left_iso, _ = QR(temp_matrix)
@@ -71,7 +72,8 @@ def random_initialization(
 def Iterative_diagonalization(
     Hamiltonian: list[npt.NDArray],
     NKeep: int,
-):
+    bk: Backend = Backend('auto')
+) -> list[npt.NDArray]:
     
     """
 
@@ -92,8 +94,8 @@ def Iterative_diagonalization(
     """
     
     MPS = []
-    before_Hamiltonian = np.array([[1.0]])
-    before_tensor = np.array([[[1.0]]])
+    before_Hamiltonian = bk.array([[1.0]])
+    before_tensor = bk.array([[[1.0]]])
     
     for it, local_Hamiltonian in enumerate(Hamiltonian):
         
@@ -104,7 +106,7 @@ def Iterative_diagonalization(
         
         truncated_Hamiltonian = local_Hamiltonian[:,:,:,0]
         
-        identity = np.identity(full_dim).reshape(
+        identity = bk.identity(full_dim).reshape(
             incoming_bond_dim, full_dim, physical_bond_dim
         )
         
