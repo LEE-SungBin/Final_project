@@ -26,9 +26,8 @@ def Contract(
     now = time.perf_counter()
 
     try:
-        result = bk.einsum(
-            subscripts, *operands, backend=bk.lib
-        )
+        # Only pass the subscripts and operands to einsum, let the backend handle dtype
+        result = bk.einsum(subscripts, *operands)
 
         if bk.lib == "torch": 
             result = bk.to_cpu(result)
