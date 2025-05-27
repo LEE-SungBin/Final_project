@@ -27,8 +27,6 @@ def Contract(
     use_blas: bool = True,
     optimize: str = 'dp',
     # space_limit: int = 17, # * In GB
-    backend: str = 'numpy',
-    gpu: bool = False,
     bk: Backend = Backend('auto')
 ) -> npt.NDArray:
 
@@ -60,56 +58,17 @@ def Contract(
     
     now = time.perf_counter()
 
-    if gpu:
-        operands = [bk.to_device(tensor) if isinstance(tensor, np.ndarray) else tensor for tensor in operands]
-        backend = 'torch'
-        out = None
-        for i, tensor in enumerate(operands):
-            assert bk.isfinite(tensor).all(), (
-                f"operand {i} is not finite\n"
-                f"operands[{i}].shape={operands[i].shape}\n"
-                f"operands[{i}]={operands[i]}"
-            )
-
-    else : 
-        for i, tensor in enumerate(operands):
-            assert np.isfinite(tensor).all(
-            ), f"operand {i} is not finite\noperands[{i}].shape={operands[i].shape}\noperands[{i}]={operands[i]}"
-
     try:
-        
-        # estimated_memory, estimated_time = check_conditions_einsum(operands, subscripts)
-        
-        # memory_limit = get_free_memory_windows()
-        
-        # if estimated_memory > memory_limit:
-        #     # Create Dask arrays with appropriate chunk sizes
-        #     chunk_size = int((memory_limit / len(operands)) ** (1 / 3)) // operands[0].itemsize
-        #     dask_operands = [da.from_array(tensor, chunks=chunk_size) for tensor in operands]
 
-        #     # Perform the contraction using Dask
-        #     result = da.einsum(subscripts, *dask_operands, optimize=optimize)
-
-        #     if out is not None:
-        #         result.store(out)
-        #     else:
-        #         result = result.compute()
-
-        # else:
         result = oe.contract(
             subscripts, *operands, out=out, dtype=dtype, order=order, casting=casting, 
-            use_blas=use_blas, optimize=optimize, backend=backend
+            use_blas=use_blas, optimize=optimize, backend=bk.lib
         )
 
-        if gpu : 
+        if bk.lib == "torch": 
             result = bk.to_cpu(result)
         
         return result
-
-    # except MemoryError as e:
-    #     print(f"Memory limit exceeded: {e}")
-    #     print_traceback(e)
-    #     raise
 
     except Exception as e:
         print(f"{subscripts=}")
@@ -127,13 +86,14 @@ def Contract(
 def Tensordot(
     tensor1: npt.NDArray,
     tensor2: npt.NDArray,
-    axes
+    axes,
+    bk: Backend = Backend('auto')
 ) -> npt.NDArray:
     
     now = time.perf_counter()
 
-    assert np.isfinite(tensor1).all(), f"tensor1 is not finite\n{tensor1=}"
-    assert np.isfinite(tensor2).all(), f"tensor2 is not finite\n{tensor2=}"
+    assert bk.isfinite(tensor1).all(), f"tensor1 is not finite\n{tensor1=}"
+    assert bk.isfinite(tensor2).all(), f"tensor2 is not finite\n{tensor2=}"
 
     try:
         # return np.tensordot(
@@ -145,7 +105,7 @@ def Tensordot(
         #     return chunked_tensordot(tensor1, tensor2, axes)
 
         # else:
-        return np.tensordot(
+        return bk.tensordot(
             tensor1, tensor2, axes=axes
         )
 
@@ -157,82 +117,6 @@ def Tensordot(
         print(f"estimated memory = {format_memory_size(estimated_memory)}\navailable memory = {format_memory_size(memory_limit)}")
         raise Exception(
             f"Tensordot Error\n{e}\n{tensor1.shape=}\n{tensor2.shape=}\n{axes=}")
-
-
-def calculate_chunk_size(tensor1, tensor2, axes, available_memory):
-    # Estimate the memory usage of one slice
-    axis1, axis2 = axes
-    if isinstance(axis1, int):
-        axis1 = (axis1,)
-    if isinstance(axis2, int):
-        axis2 = (axis2,)
-        
-    # Calculate memory for one slice
-    slice_size = np.prod([tensor1.shape[ax] for ax in axis1]) * tensor1.itemsize
-    slice_size += np.prod([tensor2.shape[ax] for ax in axis2]) * tensor2.itemsize
-
-    # Estimate how many slices can fit in the available memory
-    num_slices = available_memory // slice_size
-    return max(1, num_slices // 2)  # Use half of the available memory to be safe
-
-
-def process_chunk(tensor1, tensor2, axes, chunk1, chunk2):
-    axis1, axis2 = axes
-
-    if isinstance(axis1, int):
-        axis1 = (axis1,)
-    if isinstance(axis2, int):
-        axis2 = (axis2,)
-
-    result_shape = [tensor1.shape[i] for i in range(tensor1.ndim) if i not in axis1]
-    result_shape += [tensor2.shape[i] for i in range(tensor2.ndim) if i not in axis2]
-    chunk_result = np.zeros(result_shape, dtype=np.result_type(tensor1, tensor2))
-    
-    for i in chunk1:
-        index1 = tuple(slice(None) if dim not in axis1 else i[axis1.index(dim)] for dim in range(tensor1.ndim))
-        for j in chunk2:
-            index2 = tuple(slice(None) if dim not in axis2 else j[axis2.index(dim)] for dim in range(tensor2.ndim))
-            chunk_result += np.tensordot(tensor1[index1], tensor2[index2], axes=0)
-    
-    return chunk_result
-
-
-def chunked_tensordot(tensor1, tensor2, axes, num_processes=None):
-    axis1, axis2 = axes
-
-    # Ensure axes are tuples
-    if isinstance(axis1, int):
-        axis1 = (axis1,)
-    if isinstance(axis2, int):
-        axis2 = (axis2,)
-
-    shape1 = [tensor1.shape[i] for i in range(tensor1.ndim) if i not in axis1]
-    shape2 = [tensor2.shape[i] for i in range(tensor2.ndim) if i not in axis2]
-    result_shape = shape1 + shape2
-
-    # Create chunks for parallel processing
-    indices1 = list(np.ndindex(*[tensor1.shape[ax] for ax in axis1]))
-    indices2 = list(np.ndindex(*[tensor2.shape[ax] for ax in axis2]))
-    
-    chunk_size1 = len(indices1) // (num_processes or mp.cpu_count())
-    chunk_size2 = len(indices2) // (num_processes or mp.cpu_count())
-    
-    chunks1 = [indices1[i:i + chunk_size1] for i in range(0, len(indices1), chunk_size1)]
-    chunks2 = [indices2[i:i + chunk_size2] for i in range(0, len(indices2), chunk_size2)]
-    
-    # Multiprocessing pool
-    with mp.Pool(processes=num_processes) as pool:
-        results = []
-        for chunk1 in chunks1:
-            for chunk2 in chunks2:
-                results.append(pool.apply_async(process_chunk, args=(tensor1, tensor2, axes, chunk1, chunk2)))
-        
-        # Aggregate results
-        result = np.zeros(result_shape, dtype=np.result_type(tensor1, tensor2))
-        for res in results:
-            result += res.get()
-    
-    return result
 
 
 def check_conditions_einsum(operands, subscripts):
@@ -313,48 +197,3 @@ def check_conditions_tensordot(tensor1, tensor2, axes):
         print(f"tensor1.shape={tensor1.shape}, tensor2.shape={tensor2.shape}, axes={axes}")
 
     return estimated_memory
-
-
-def chunk_tensor(tensor, chunk_size):
-    """Divide tensor into chunks of given size."""
-    chunks = [tensor[i:i + chunk_size] for i in range(0, tensor.shape[0], chunk_size)]
-    return chunks
-
-
-def save_chunk_to_disk(chunk, filename):
-    with open(filename, 'wb') as f:
-        pickle.dump(chunk, f)
-
-
-def load_chunk_from_disk(filename):
-    with open(filename, 'rb') as f:
-        return pickle.load(f)
-
-
-def contract_with_file_io(subscripts: str, *operands, chunk_size: int, memory_limit: int):
-    temp_dir = tempfile.mkdtemp()
-    filenames = [os.path.join(temp_dir, f"tensor_{i}.pkl") for i in range(len(operands))]
-
-    # Save chunks to disk
-    for i, tensor in enumerate(operands):
-        chunks = chunk_tensor(tensor, chunk_size)
-        for j, chunk in enumerate(chunks):
-            save_chunk_to_disk(chunk, filenames[i] + f"_{j}")
-
-    # Load chunks and perform contraction in pieces
-    result = None
-    for i in range(len(operands)):
-        for j in range(len(chunks)):
-            chunk = load_chunk_from_disk(filenames[i] + f"_{j}")
-            if result is None:
-                result = chunk
-            else:
-                result = oe.contract(subscripts, result, chunk, optimize='dp')
-    
-    # Clean up temporary files
-    for filename in filenames:
-        os.remove(filename)
-    os.rmdir(temp_dir)
-    
-    return result
-

@@ -62,18 +62,14 @@ def exact_SVD(
     matrix, stable_matrix,
     Nkeep: int | None = None, Skeep: float | None = None,
     threshold: float = 1.e-8,
-    max_attempts: int = 2
+    max_attempts: int = 2,
+    bk: Backend = Backend('auto')
 ):
     attempts = 0
     while attempts < max_attempts:
         try:
-            U, S, Vh = np.linalg.svd(stable_matrix, full_matrices=False)
+            U, S, Vh = bk.svd(stable_matrix, full_matrices=False)
             S[S < 0] = 0
-
-            # if not np.allclose(matrix, U @ np.diag(S) @ Vh, rtol=1.e-8, atol=1.e-8):
-            # if not np.linalg.norm(matrix - U @ np.diag(S) @ Vh)/np.linalg.norm(matrix) < 1.e-6 and not np.linalg.norm(matrix - U @ np.diag(S) @ Vh) < 1.e-6:
-            #     # print(f"{np.linalg.norm(matrix - U @ np.diag(S) @ Vh)/np.linalg.norm(matrix)=}\n{np.linalg.norm(matrix - U @ np.diag(S) @ Vh)=}\n{matrix=}\n{stable_matrix=}")
-            #     raise Exception(f"SVD Error, Incorrect decomposition")
 
             if Nkeep is not None:
                 U = U[:, :Nkeep]
@@ -82,33 +78,31 @@ def exact_SVD(
 
             return U, S, Vh
 
-        except np.linalg.LinAlgError as e:
+        except Exception as e:
             print(f"exact SVD error at attempt {attempts+1}\n{e}\n{matrix.shape=}\n{matrix=}")
             print_traceback(e)
-            # raise e
             attempts += 1
 
     print(f"SVD failed to converge after {max_attempts} attempts. Trying random SVD")
 
     try:
-        U, S, Vh = random_SVD(stable_matrix)
+        U, S, Vh = random_SVD(stable_matrix, bk=bk)
         return U, S, Vh
     
-    except np.linalg.LinAlgError as e:
-        print(f"Random SVD error\n{e}\nnp.max(matrix)={round_sig(np.max(np.abs(stable_matrix)))} np.min(matrix)={round_sig(np.min(np.abs(stable_matrix)))}")
+    except Exception as e:
+        print(f"Random SVD error\n{e}\nnp.max(matrix)={round_sig(bk.max(bk.abs(stable_matrix)))} np.min(matrix)={round_sig(bk.min(bk.abs(stable_matrix)))}")
         print_traceback(e)
         sys.exit()
-        # U, S, Vh = exact_SVD(matrix, stable_matrix, Nkeep, Skeep)
 
 
 def random_SVD(
     stable_matrix,
     Oversampling: int | None = None,
     Iteration: int = 5,
-    Nkeep: int | None = None
+    Nkeep: int | None = None,
+    bk: Backend = Backend('auto')
 ):
 
-    rng = np.random.default_rng()
     M, N = stable_matrix.shape
 
     if Oversampling is None:
@@ -122,21 +116,20 @@ def random_SVD(
     q = int(Iteration/2)
 
     if Iteration % 2 == 1:
-        Y = stable_matrix @ rng.random(
-            size=(N, Nkeep+Oversampling))
+        Y = stable_matrix @ bk.randn(N, Nkeep+Oversampling)
     else:
-        Y = rng.random(size=(M, Nkeep+Oversampling))
+        Y = bk.randn(M, Nkeep+Oversampling)
 
     for _ in range(q):
         try:
             Y = stable_matrix @ stable_matrix.conj().T @ Y
         except RuntimeWarning as e:
-            print(f"random SVD warning\n{e}\nnp.max(matrix)={round_sig(np.max(np.abs(stable_matrix)))} np.min(matrix)={round_sig(np.min(np.abs(stable_matrix)))}\nnp.max(Y)={round_sig(np.max(np.abs(Y)))} np.min(Y)={round_sig(np.min(np.abs(Y)))}")
+            print(f"random SVD warning\n{e}\nnp.max(matrix)={round_sig(bk.max(bk.abs(stable_matrix)))} np.min(matrix)={round_sig(bk.min(bk.abs(stable_matrix)))}\nnp.max(Y)={round_sig(bk.max(bk.abs(Y)))} np.min(Y)={round_sig(bk.min(bk.abs(Y)))}")
             print_traceback(e)
 
-    Q, _ = np.linalg.qr(Y)
+    Q, _ = bk.qr(Y)
 
-    U, S, Vh = np.linalg.svd(
+    U, S, Vh = bk.svd(
         Q.conj().T @ stable_matrix, full_matrices=False)
     S[S < 0] = 0
     U = Q @ U
@@ -174,42 +167,32 @@ def exact_EIGH(
     matrix, stable_matrix,
     Nkeep: int | None = None, Skeep: float | None = None,
     threshold=1.e-8,
-    max_attempts: int = 2
+    max_attempts: int = 2,
+    bk: Backend = Backend('auto')
 ):
     attempts = 0
     while attempts < max_attempts:
         try:
-            eigvals, eigvecs = sp.linalg.eigh(stable_matrix)
+            eigvals, eigvecs = bk.eigh(stable_matrix)
             eigvals = eigvals[::-1]
             eigvecs = eigvecs[:, ::-1]
-            # eigvals[eigvals < 0] = 0
-
-            # if not np.allclose(matrix, eigvecs @ np.diag(eigvals) @ eigvecs.conj().T, rtol=1.e-8, atol=1.e-8):
-            # if not np.linalg.norm(matrix - eigvecs @ np.diag(eigvals) @ eigvecs.conj().T)/np.linalg.norm(matrix) < 1.e-6 and not np.linalg.norm(matrix - eigvecs @ np.diag(eigvals) @ eigvecs.conj().T) < 1.e-6:
-            #     # print(f"{np.linalg.norm(matrix - eigvecs @ np.diag(eigvals) @ eigvecs.conj().T)/np.linalg.norm(matrix)=}\n{np.linalg.norm(matrix - eigvecs @ np.diag(eigvals) @ eigvecs.conj().T)}\n{matrix=}\n{stable_matrix=}")
-            #     raise Exception(
-            #         f"EIGH Error, Incorrect decomposition")
 
             if Nkeep is not None:
                 eigvals = eigvals[:Nkeep]
                 eigvecs = eigvecs[:, :Nkeep]
 
-            # eigvals[
-            #     eigvals.max() - eigvals < eigvals.max() * threshold] = eigvals.max()
-
             return eigvals, eigvecs
 
-        except np.linalg.LinAlgError as e:
+        except Exception as e:
             print(f"exact EIGH error\n{e}\n{matrix.shape=}\n{matrix=}")
             print_traceback(e)
-            # raise e
             attempts += 1
 
     print("EIGH failed to converge after maximum number of attempts.")
     return None
 
 
-def lanczos(A, k, n_iter=10):
+def lanczos(A, k, n_iter=10, bk: Backend = Backend('auto')):
     """
     Perform the Lanczos algorithm on matrix A to find k eigenvalues.
 
@@ -223,24 +206,23 @@ def lanczos(A, k, n_iter=10):
     numpy.ndarray: Corresponding eigenvectors.
     """
     n = A.shape[0]
-    Q = np.zeros((n, n_iter + 1))
-    alpha = np.zeros(n_iter)
-    beta = np.zeros(n_iter + 1)
-    Q[:, 0] = np.random.rand(n)
-    Q[:, 0] = Q[:, 0] / np.linalg.norm(Q[:, 0])
+    Q = bk.zeros((n, n_iter + 1))
+    alpha = bk.zeros(n_iter)
+    beta = bk.zeros(n_iter + 1)
+    Q[:, 0] = bk.randn(n)
+    Q[:, 0] = Q[:, 0] / bk.norm(Q[:, 0])
 
     for j in range(1, n_iter + 1):
-        v = A @ Q[:, j - 1]
-        alpha[j - 1] = np.dot(Q[:, j - 1], v)
+        v = bk.matmul(A, Q[:, j - 1])
+        alpha[j - 1] = bk.trace(bk.matmul(Q[:, j - 1].T, v))
         v = v - alpha[j - 1] * Q[:, j - 1] - beta[j - 1] * Q[:, j - 2]
-        beta[j] = np.linalg.norm(v)
+        beta[j] = bk.norm(v)
         Q[:, j] = v / beta[j]
 
-    T = np.diag(alpha) + np.diag(beta[1:n_iter], k=1) + np.diag(beta[1:n_iter], k=-1)
-    eigenvalues, eigenvectors = np.linalg.eigh(T)
+    T = bk.diag(alpha) + bk.diag(beta[1:n_iter], k=1) + bk.diag(beta[1:n_iter], k=-1)
+    eigenvalues, eigenvectors = bk.eigh(T)
     
-    # Select the k largest eigenvalues and corresponding eigenvectors.
-    idx = np.argsort(eigenvalues)[-k:]
+    idx = bk.argsort(eigenvalues)[-k:]
 
     return eigenvalues[idx], eigenvectors[:, idx]
 
@@ -268,7 +250,8 @@ def QR(
 
 
 def RQ(
-    matrix: npt.NDArray
+    matrix: npt.NDArray,
+    bk: Backend = Backend('auto')
 ):
     """
     Return R, Q
@@ -279,33 +262,26 @@ def RQ(
     R is upper triangular
     """
 
-    # Ensure the input is a numpy array
-    assert isinstance(matrix, np.ndarray), f"{type(matrix)=} != numpy.ndarray"
+    assert isinstance(matrix, (np.ndarray, bk.xp.Tensor)), f"{type(matrix)=} != numpy.ndarray or torch.Tensor"
     assert len(matrix.shape) == 2, f"{len(matrix.shape)=} != 2"
 
     stable_matrix = matrix
     
-    # Check for NaN or Inf values
-    if np.isnan(stable_matrix).any() or np.isinf(stable_matrix).any():
+    if bk.isfinite(stable_matrix).all():
         print("Data contains NaN or Inf values")
-        stable_matrix = np.nan_to_num(stable_matrix, nan=0.0, posinf=0.0, neginf=0.0)
+        stable_matrix = bk.nan_to_num(stable_matrix, nan=0.0, posinf=0.0, neginf=0.0)
 
-    # Warn if the matrix is very large
-    if np.prod(matrix.shape) * np.min(matrix.shape) > 10**9:
+    if bk.prod(matrix.shape) * bk.min(matrix.shape) > 10**9:
         print(f"RQ big matrix, shape={matrix.shape}: ", end="")
 
     try:
-        # Reverse the matrix
-        reversed_matrix = np.flipud(np.fliplr(stable_matrix))
-        
-        # Perform QR decomposition on the reversed matrix
-        Q, R = np.linalg.qr(reversed_matrix.T, mode="reduced")
+        reversed_matrix = bk.flipud(bk.fliplr(stable_matrix))
+        Q, R = bk.qr(reversed_matrix.T, mode="reduced")
 
-        # Reverse the R and Q to obtain the RQ decomposition
-        R = np.flipud(np.fliplr(R.T))
-        Q = np.flipud(np.fliplr(Q.T))
+        R = bk.flipud(bk.fliplr(R.T))
+        Q = bk.flipud(bk.fliplr(Q.T))
 
-    except np.linalg.LinAlgError as e:
+    except Exception as e:
         print(f"RQ decomposition error\n{e}")
         print_traceback(e)
         sys.exit()

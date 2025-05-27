@@ -77,6 +77,11 @@ def DMRG(
                Hamiltonian=Hamiltonian, NKeep=NKeep, bk=bk
           )
      
+     # Verify MPS normalization
+     norm = MPS_MPS_overlap(MPS, MPS, bk=bk)
+     if not bk.all(bk.isfinite(norm)) or abs(norm - 1.0) > 1e-10:
+          raise ValueError(f"MPS not properly normalized: {norm}")
+     
      """
      Transpose to calculate overlap
      """
@@ -101,7 +106,7 @@ def DMRG(
                "abc,aix,yxbj,cky->ijk",
                contract_list_left[it-1],
                MPS[it-1], Hamiltonian[it-1], bk.conj(MPS[it-1]),
-               bk=bk, gpu=True
+               bk=bk
           )
      
      """
@@ -230,7 +235,7 @@ def sweep_with_single_site_update(
           """
           renormalize
           """
-          S = S / np.linalg.norm(S)
+          S = S / bk.norm(S)
           
           """
           Update MPS
@@ -239,7 +244,7 @@ def sweep_with_single_site_update(
           MPS[orthogonality_center] = Vh
           MPS[orthogonality_center-1] = Contract(
                "iak,ab,bj->ijk", MPS[orthogonality_center-1],
-               U, np.diag(S), bk=bk, gpu=True
+               U, bk.diag(S), bk=bk
           )
           
           """
@@ -249,7 +254,7 @@ def sweep_with_single_site_update(
           contract_list_right[right_loc + 1] = Contract(
                "iax,yxjb,kcy,abc->ijk",
                MPS[orthogonality_center], Hamiltonian[orthogonality_center],
-               bk.conj(MPS[orthogonality_center]), contract_list_right[right_loc], bk=bk, gpu=True
+               bk.conj(MPS[orthogonality_center]), contract_list_right[right_loc], bk=bk
           )
      
      """
@@ -310,7 +315,7 @@ def sweep_with_single_site_update(
           """
           renormalize
           """
-          S = S / np.linalg.norm(S)
+          S = S / bk.norm(S)
           
           """
           Update MPS
@@ -318,7 +323,7 @@ def sweep_with_single_site_update(
           
           MPS[orthogonality_center] = U
           MPS[orthogonality_center + 1] = Contract(
-               "ia,ab,bjk->ijk", np.diag(S), Vh, bk=bk, gpu=True
+               "ia,ab,bjk->ijk", bk.diag(S), Vh, bk=bk
           )
           
           """
@@ -328,7 +333,7 @@ def sweep_with_single_site_update(
           contract_list_left[left_loc + 1] = Contract(
                "abc,aix,yxbj,cky->ijk",
                contract_list_left[left_loc], MPS[orthogonality_center],
-               Hamiltonian[orthogonality_center], bk.conj(MPS[orthogonality_center]), bk=bk, gpu=True
+               Hamiltonian[orthogonality_center], bk.conj(MPS[orthogonality_center]), bk=bk
           )
      
      energies = bk.array(energies)
@@ -343,21 +348,14 @@ def get_eigen_vector_from_lanczos(
      bk: Backend = Backend('auto')
 ) -> tuple[float, npt.NDArray]:
      
-     Tridiagonal = get_tridiagonal_matrix(alphas, betas)
-     
-     # print(f"{Tridiagonal=}")
+     Tridiagonal = get_tridiagonal_matrix(alphas, betas, bk=bk)
      
      eigvals, eigvecs = EIGH(Tridiagonal, bk=bk)
      
-     # print(f"{alphas=} {betas=} {eigvals=}")
-     
-     """
-     get eigenstate with the lowest eigenvalue
-     """
      eigval = eigvals[-1]
      eigvec = eigvecs[:,-1]
      
-     eigenvector = np.zeros(shape=left_isometries[0].shape)
+     eigenvector = bk.zeros(shape=left_isometries[0].shape)
      
      for coefficient, left_isometry in zip(eigvec, left_isometries):
           eigenvector = eigenvector + coefficient * left_isometry
@@ -386,13 +384,13 @@ def lanczos_for_single_site(
      
      if constraints is not None:
           for constraint in constraints:
-               left_isometries.append(constraint / np.linalg.norm(constraint))
+               left_isometries.append(constraint / bk.norm(constraint))
      
      vector = deepcopy(initial_vector)
-     norm = np.linalg.norm(vector)
+     norm = bk.norm(vector)
      vector = vector / norm
      
-     vector = orthogonalize(vector, left_isometries, two_site=True)     
+     vector = orthogonalize(vector, left_isometries, two_site=True, bk=bk)     
      left_isometries.append(vector)
      
      omega = matrix_vector_multi_for_single_site(
@@ -404,16 +402,16 @@ def lanczos_for_single_site(
      )
      
      alpha = Contract(
-          "ijk,ijk->", vector.conj(), omega, bk=bk, gpu=True
+          "ijk,ijk->", vector.conj(), omega, bk=bk
      )
      
      # assert np.abs(alpha.imag) > 1e-15 * np.abs(alpha.real), f"Hamiltonian not Hermitian"
      
      alphas.append(alpha)
-     vector = orthogonalize(omega, left_isometries, two_site=False)
+     vector = orthogonalize(omega, left_isometries, two_site=False, bk=bk)
      
      for iter in range(1, Krylov_bases):
-          beta = np.linalg.norm(vector)
+          beta = bk.norm(vector)
           
           if beta < Lanczos_cutoff:
                break
@@ -430,10 +428,11 @@ def lanczos_for_single_site(
                bk = bk
           )
           
-          alpha = Contract("ijk,ijk->", vector.conj(), omega, bk=bk, gpu=True)
+          alpha = Contract("ijk,ijk->", vector.conj(), omega, bk=bk
+          )
           alphas.append(alpha)
           
-          vector = orthogonalize(omega, left_isometries, two_site=False)
+          vector = orthogonalize(omega, left_isometries, two_site=False, bk=bk)
      
      alphas = bk.array(alphas)
      betas = bk.array(betas)
@@ -455,7 +454,7 @@ def matrix_vector_multi_for_single_site(
      
      return Contract(
           "abi,acx,kxbd,cdj->ijk",
-          contract_left, vector, contract_center, contract_right, bk=bk, gpu=True
+          contract_left, vector, contract_center, contract_right, bk=bk
      )
 
 
@@ -463,6 +462,7 @@ def orthogonalize(
      omega: npt.NDArray,
      left_isometries: list[npt.NDArray],
      two_site: bool = True,
+     bk: Backend = Backend('auto')
 ) -> npt.NDArray:
      
      coefficients = []
@@ -470,16 +470,16 @@ def orthogonalize(
      for left_isometry in left_isometries:
           if two_site:
                coefficient = Contract(
-                    "ijkl,ijkl->", omega, left_isometry.conj()
+                    "ijkl,ijkl->", omega, bk.conj(left_isometry), bk=bk
                )
           else:
                coefficient = Contract(
-                    "ijk,ijk->", omega, left_isometry.conj()
+                    "ijk,ijk->", omega, bk.conj(left_isometry), bk=bk
                )
           
           coefficients.append(coefficient)
      
-     coefficients = np.array(coefficients)
+     coefficients = bk.array(coefficients)
      
      new_vector = omega
      
@@ -492,12 +492,13 @@ def orthogonalize(
 def get_tridiagonal_matrix(
      alphas: npt.NDArray,
      betas: npt.NDArray,
+     bk: Backend = Backend('auto')
 ) -> npt.NDArray:
      
      size = len(alphas)
      assert len(betas) == size - 1, f"{len(alphas)=} != {len(betas)+1=}"
      
-     Tridiagonal = np.diag(alphas)
+     Tridiagonal = bk.diag(alphas)
      
      for it, beta in enumerate(betas):
           Tridiagonal[it+1][it] = beta
@@ -553,7 +554,7 @@ def sweep_with_two_site_update(
                     
                     constraints.append(constraint_mps)
           
-          initial_vector = Contract("iak,ajl->ijkl", initial_vector1, initial_vector2, bk=bk, gpu=True)
+          initial_vector = Contract("iak,ajl->ijkl", initial_vector1, initial_vector2, bk=bk)
           
           contract_left = deepcopy(contract_list_left[left_loc])
           contract_center1 = deepcopy(Hamiltonian[orthogonality_center-1])
@@ -588,7 +589,7 @@ def sweep_with_two_site_update(
           """
           renormalize
           """
-          S = S / np.linalg.norm(S)
+          S = S / bk.norm(S)
           
           """
           Update MPS
@@ -596,7 +597,7 @@ def sweep_with_two_site_update(
           
           MPS[orthogonality_center] = Vh
           MPS[orthogonality_center-1] = Contract(
-               "iak,aj->ijk", U, np.diag(S), bk=bk, gpu=True
+               "iak,aj->ijk", U, bk.diag(S), bk=bk
           )
           
           """
@@ -606,7 +607,7 @@ def sweep_with_two_site_update(
           contract_list_right[right_loc + 1] = Contract(
                "iax,yxjb,kcy,abc->ijk",
                MPS[orthogonality_center], Hamiltonian[orthogonality_center],
-               bk.conj(MPS[orthogonality_center]), contract_list_right[right_loc], bk=bk, gpu=True
+               bk.conj(MPS[orthogonality_center]), contract_list_right[right_loc], bk=bk
           )
      
      """
@@ -622,7 +623,7 @@ def sweep_with_two_site_update(
           initial_vector1 = deepcopy(MPS[orthogonality_center])
           initial_vector2 = deepcopy(MPS[orthogonality_center+1])
           
-          initial_vector = Contract("iak,ajl->ijkl", initial_vector1, initial_vector2, bk=bk, gpu=True)
+          initial_vector = Contract("iak,ajl->ijkl", initial_vector1, initial_vector2, bk=bk)
           
           contract_left = deepcopy(contract_list_left[left_loc])
           contract_center1 = deepcopy(Hamiltonian[orthogonality_center])
@@ -675,7 +676,7 @@ def sweep_with_two_site_update(
           """
           renormalize
           """
-          S = S / np.linalg.norm(S)
+          S = S / bk.norm(S)
           
           """
           Update MPS
@@ -683,7 +684,7 @@ def sweep_with_two_site_update(
           
           MPS[orthogonality_center] = U
           MPS[orthogonality_center + 1] = Contract(
-               "ia,ajk->ijk", np.diag(S), Vh, bk=bk, gpu=True
+               "ia,ajk->ijk", bk.diag(S), Vh, bk=bk
           )
           
           """
@@ -693,7 +694,7 @@ def sweep_with_two_site_update(
           contract_list_left[left_loc + 1] = Contract(
                "abc,aix,yxbj,cky->ijk",
                contract_list_left[left_loc], MPS[orthogonality_center],
-               Hamiltonian[orthogonality_center], bk.conj(MPS[orthogonality_center]), bk=bk, gpu=True
+               Hamiltonian[orthogonality_center], bk.conj(MPS[orthogonality_center]), bk=bk
           )
      
      energies = bk.array(energies)
@@ -719,17 +720,17 @@ def lanczos_for_two_site(
      
      if constraints is not None:
           for constraint in constraints:
-               left_isometries.append(constraint / np.linalg.norm(constraint))
+               left_isometries.append(constraint / bk.norm(constraint))
 
      """
      Iteration 1
      """     
      
      vector = deepcopy(initial_vector)
-     norm = np.linalg.norm(vector)
+     norm = bk.norm(vector)
      vector = vector / norm
      
-     vector = orthogonalize(vector, left_isometries, two_site=True)
+     vector = orthogonalize(vector, left_isometries, two_site=True, bk=bk)
      left_isometries.append(vector)
      
      omega = matrix_vector_multi_for_two_site(
@@ -742,16 +743,16 @@ def lanczos_for_two_site(
      )
      
      alpha = Contract(
-          "ijkl,ijkl->", vector.conj(), omega, bk=bk, gpu=True
+          "ijkl,ijkl->", vector.conj(), omega, bk=bk
      )
      
      # assert np.abs(alpha.imag) > 1e-15 * np.abs(alpha.real), f"Hamiltonian not Hermitian"
      
      alphas.append(alpha)
-     vector = orthogonalize(omega, left_isometries, two_site=True)
+     vector = orthogonalize(omega, left_isometries, two_site=True, bk=bk)
      
      for iteratioin in range(1, Krylov_bases):
-          beta = np.linalg.norm(vector)
+          beta = bk.norm(vector)
           
           if beta < Lanczos_cutoff:
                break
@@ -769,10 +770,11 @@ def lanczos_for_two_site(
                bk = bk
           )
           
-          alpha = Contract("ijkl,ijkl->", vector.conj(), omega, bk=bk, gpu=True)
+          alpha = Contract("ijkl,ijkl->", vector.conj(), omega, bk=bk
+          )
           alphas.append(alpha)
           
-          vector = orthogonalize(omega, left_isometries, two_site=True)
+          vector = orthogonalize(omega, left_isometries, two_site=True, bk=bk)
      
      alphas = bk.array(alphas)
      betas = bk.array(betas)
@@ -795,6 +797,6 @@ def matrix_vector_multi_for_two_site(
      
      return Contract(
           "abi,aexy,kxbd,lydf,efj->ijkl",
-          contract_left, vector, contract_center1, contract_center2, contract_right, bk=bk, gpu=True
+          contract_left, vector, contract_center1, contract_center2, contract_right, bk=bk
      )
 
