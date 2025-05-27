@@ -159,7 +159,16 @@ def EIGH(
     eigenvectors : ndarray
         The eigenvectors, sorted in non-increasing order.
     """
-    
+    # Convert matrix to the correct backend type and complex dtype
+    if bk.lib == "torch":
+        if not isinstance(matrix, torch.Tensor):
+            matrix = bk.array(matrix, dtype=bk.complex)
+        elif not matrix.is_complex():
+            matrix = matrix.to(dtype=bk.complex)
+    else:
+        if not np.iscomplexobj(matrix):
+            matrix = matrix.astype(bk.complex)
+
     return bk.eigh(matrix)
 
 
