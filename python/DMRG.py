@@ -428,8 +428,7 @@ def lanczos_for_single_site(
                bk = bk
           )
           
-          alpha = Contract("ijk,ijk->", vector.conj(), omega, bk=bk
-          )
+          alpha = Contract("ijk,ijk->", vector.conj(), omega, bk=bk)
           alphas.append(alpha)
           
           vector = orthogonalize(omega, left_isometries, two_site=False, bk=bk)
@@ -770,8 +769,7 @@ def lanczos_for_two_site(
                bk = bk
           )
           
-          alpha = Contract("ijkl,ijkl->", vector.conj(), omega, bk=bk
-          )
+          alpha = Contract("ijkl,ijkl->", vector.conj(), omega, bk=bk)
           alphas.append(alpha)
           
           vector = orthogonalize(omega, left_isometries, two_site=True, bk=bk)

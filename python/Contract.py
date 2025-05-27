@@ -20,41 +20,8 @@ from python.Backend import Backend
 def Contract(
     subscripts: str,
     *operands,
-    out: npt.NDArray | None = None,
-    dtype: str | None = None,
-    order: str = 'K',
-    casting: str = 'safe',
-    use_blas: bool = True,
-    optimize: str = 'dp',
-    # space_limit: int = 17, # * In GB
     bk: Backend = Backend('auto')
 ) -> npt.NDArray:
-
-    """
-    Parameters
-    ----------
-    subscripts : str
-        Specifies the subscripts for summation.
-    *operands : list of array_like
-        These are the arrays for the operation.
-    out : array_like
-        A output array in which set the resulting output.
-    dtype : str
-        The dtype of the given contraction, see np.einsum.
-    order : str
-        The order of the resulting contraction, see np.einsum.
-    casting : str
-        The casting procedure for operations of different dtype, see np.einsum.
-    use_blas : bool
-        Do you use BLAS for valid operations, may use extra memory for more intermediates.
-    optimize : str, list or bool, optional (default: ``auto``)
-        Choose the type of path.
-
-    Returns
-    -------
-    out : array_like
-        The result of the einsum expression.
-    """
     
     now = time.perf_counter()
 
