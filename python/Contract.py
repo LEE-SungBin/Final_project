@@ -59,7 +59,6 @@ def Contract(
     now = time.perf_counter()
 
     try:
-
         result = oe.contract(
             subscripts, *operands, out=out, dtype=dtype, order=order, casting=casting, 
             use_blas=use_blas, optimize=optimize, backend=bk.lib
@@ -73,14 +72,19 @@ def Contract(
     except Exception as e:
         print(f"{subscripts=}")
         for i, tensor in enumerate(operands):
-            print(f"operands[{i}].shape={operands[i].shape}")
-        estimated_memory, estimated_time = check_conditions_einsum(operands, subscripts)
+            if bk.lib == "torch" and hasattr(tensor, 'device'):
+                tensor = bk.to_cpu(tensor)
+            print(f"operands[{i}].shape={tensor.shape}")
+        
+        # Move operands to CPU for memory estimation
+        cpu_operands = [bk.to_cpu(op) if bk.lib == "torch" else op for op in operands]
+        estimated_memory, estimated_time = check_conditions_einsum(cpu_operands, subscripts)
         memory_limit = get_free_memory_windows()
         print(f"Contract error {e}")
         print(f"estimated memory = {format_memory_size(estimated_memory)}\navailable memory = {format_memory_size(memory_limit)}")
         print_traceback(e)
 
-        # raise Exception(f"Contract Error {e}")
+        raise Exception(f"Contract Error {e}")
 
 
 def Tensordot(
