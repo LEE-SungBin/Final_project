@@ -40,9 +40,6 @@ def Contract(
         # Only pass the subscripts and operands to einsum, let the backend handle dtype
         result = bk.einsum(subscripts, *complex_operands)
 
-        if bk.lib == "torch": 
-            result = bk.to_cpu(result)
-        
         return result
 
     except Exception as e:
