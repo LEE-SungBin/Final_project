@@ -38,6 +38,7 @@ def DMRG(
      Lanczos_cutoff: float = 1e-4,
      orthogonal_to_list_of_MPS: list[list[npt.NDArray]] | None = None,
      verbose: bool = False,
+     tol: float = 1e-6,
      bk: Backend = Backend('auto')
 ) -> tuple[npt.NDArray, npt.NDArray, list]:
 
@@ -146,6 +147,8 @@ def DMRG(
                     orthogonal_to_list_of_MPS = orthogonal_to_list_of_MPS,
                     bk = bk
                )
+
+          last_energy = total_energies[-1]
           
           total_energies.extend(energies)
           if iter > 0:
@@ -155,7 +158,10 @@ def DMRG(
           
           if verbose:
                print(f"iter={iter+1} | energy={round_sig(np.real(energies[-1]), 8)} | time={round_sig(times[-1], 3)}s")
-     
+
+          if bk.xp.abs(last_energy.real - total_energies[-1].real) < tol:
+               break
+
      total_energies = bk.array(total_energies)
      times = bk.array(times)
      

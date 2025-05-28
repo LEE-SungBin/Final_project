@@ -169,7 +169,7 @@ def MPS_MPO_MPS_overlap(
             overlap, rearrange_list_by_values(lst, [ord_overlap-1], [1])
         )
     
-    return bk.to_cpu(overlap)
+    return overlap
 
 
 def MPS_MPO_multiplication(
