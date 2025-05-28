@@ -78,6 +78,7 @@ def Hubbard_model_with_filling(
     hopping_t: float,
     interaction_U: float,
     chemical_potential: float,
+    bk: Backend = Backend('auto'),
 ) -> list[npt.NDArray]:
 
     """
@@ -140,7 +141,8 @@ def Hubbard_model_with_filling(
 
 
 def Double_occupancy(
-    MPS: list[npt.NDArray]
+    MPS: list[npt.NDArray],
+    bk: Backend = Backend('auto'),
 ):
     
     double_occupancy = []
@@ -150,17 +152,18 @@ def Double_occupancy(
         double_occupied_MPS = deepcopy(MPS)
         double_occupied_MPS[it] = mps[:,:,3].reshape(mps.shape[0], mps.shape[1], 1)
         
-        occupancy = MPS_MPS_overlap(double_occupied_MPS, double_occupied_MPS)
+        occupancy = MPS_MPS_overlap(double_occupied_MPS, double_occupied_MPS, bk=bk)
         
         double_occupancy.append(occupancy)
     
-    double_occupancy = np.array(double_occupancy)
+    double_occupancy = bk.array(double_occupancy)
     
     return double_occupancy
 
 
 def get_filling(
-    MPS: list[npt.NDArray]
+    MPS: list[npt.NDArray],
+    bk: Backend = Backend('auto'),
 ):
     
     filling = []
@@ -170,11 +173,11 @@ def get_filling(
         MPO = [bk.identity(4).reshape(1, 1, 4, 4) for _ in MPS]
         MPO[it][0,0] = bk.diag([0, 1, 1, 2])
         
-        filled = MPS_MPO_MPS_overlap(MPS, MPO, MPS)
+        filled = MPS_MPO_MPS_overlap(MPS, MPO, MPS, bk=bk)
         
         filling.append(filled)
     
-    filling = np.array(filling)
+    filling = bk.array(filling)
     
     return filling
 

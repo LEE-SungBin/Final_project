@@ -2,7 +2,7 @@ import numpy as np
 import numpy.typing as npt
 # from python.Canonical_Form import move_site_left, move_site_right
 from python.Contract import Contract
-from python.Decomposition import SVD, EIGH, QR
+from python.Decomposition import SVD, EIGH, QR, RQ
 # from python.Gauging import *
 from python.initialization import random_initialization, Iterative_diagonalization
 from python.utils import round_sig
@@ -85,10 +85,10 @@ def DMRG(
      Compute contract_list_left and right
      """
      
-     contract_list_left: list[npt.NDArray] = [
+     contract_list_left: list = [
           bk.array([1.0]).reshape(1, 1, 1) for _ in range(n_sites+1)
      ]
-     contract_list_right: list[npt.NDArray] = [
+     contract_list_right: list = [
           bk.array([1.0]).reshape(1, 1, 1) for _ in range(n_sites+1)
      ]
 
@@ -105,7 +105,7 @@ def DMRG(
      """
      
      times = [0.0]
-     total_energies = [initial_energy.real]
+     total_energies = [bk.real(initial_energy)]
      
      if verbose:
           print(f"iter=0 | energy={round_sig(total_energies[0], 8)} | time={round_sig(times[-1], 3)}s")
@@ -147,9 +147,10 @@ def DMRG(
                times.append(time.perf_counter()-now)
           
           if verbose:
-               print(f"iter={iter+1} | energy={round_sig(np.real(energies[-1]), 8)} | time={round_sig(times[-1], 3)}s")
+               # print(f"iter={iter+1} | energy={round_sig(energies[-1], 8)} | time={round_sig(times[-1], 3)}s")
+               print(f"iter={iter+1} | energy={energies[-1]} | time={times[-1]}s")
           
-          if np.abs(last_energy - total_energies[-1]) < tol:
+          if bk.abs(last_energy - total_energies[-1]) < tol:
                break
      
      total_energies = bk.array(total_energies)
@@ -348,8 +349,13 @@ def get_eigen_vector_from_lanczos(
      
      eigvals, eigvecs = EIGH(Tridiagonal, bk=bk)
      
-     eigval = eigvals[-1]
-     eigvec = eigvecs[:,-1]
+     # eigval = eigvals[-1]
+     # eigvec = eigvecs[:,-1]
+     
+     eigval = eigvals[0]
+     eigvec = eigvecs[:,0]
+     
+     # print(f"{eigval=}")
      
      eigenvector = bk.zeros(shape=left_isometries[0].shape)
      

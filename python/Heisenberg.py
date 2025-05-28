@@ -11,6 +11,7 @@ def XXZ_model(
     ZZ_coupling: float = 1.0,
     XY_coupling: float = 1.0,
     magnetic_field: float = 0.0,
+    bk: Backend = Backend('auto'),
 ) -> list[npt.NDArray]:
     
     
@@ -29,17 +30,17 @@ def XXZ_model(
     Hamiltonian = []
     Hamiltonian_shape = [2, 2, 5, 5]
     
-    identity = np.identity(2)
-    S_x = 1 / 2 * np.array([
+    identity = bk.identity(2)
+    S_x = 1 / 2 * bk.array([
         [0, 1],
         [1, 0]
     ]
     )
-    S_y = 1 / 2 * np.array([
+    S_y = 1 / 2 * bk.array([
         [0, -1j],
         [1j, 0]
     ])
-    S_z = 1 / 2 * np.array([
+    S_z = 1 / 2 * bk.array([
         [1, 0],
         [0, -1]
     ])
@@ -48,7 +49,7 @@ def XXZ_model(
     
     for it in range(n_sites):
         
-        MPO = np.zeros(Hamiltonian_shape, dtype=complex)
+        MPO = bk.zeros(Hamiltonian_shape, dtype=bk.complex)
         
         MPO[:,:,0,0] = identity
         MPO[:,:,1,0] = S_plus
@@ -76,6 +77,7 @@ def nn_Heisenberg_model(
     n_sites: int,
     J1: float = 1.0,
     J2: float = 1.0,
+    bk: Backend = Backend('auto'),
 ) -> list[npt.NDArray]:
     
     
@@ -94,17 +96,17 @@ def nn_Heisenberg_model(
     Hamiltonian = []
     Hamiltonian_shape = [2, 2, 4, 4]
     
-    identity = np.identity(2)
-    S_x = 1 / 2 * np.array([
+    identity = bk.identity(2)
+    S_x = 1 / 2 * bk.array([
         [0, 1],
         [1, 0]
     ]
     )
-    S_y = 1 / 2 * np.array([
+    S_y = 1 / 2 * bk.array([
         [0, -1j],
         [1j, 0]
     ])
-    S_z = 1 / 2 * np.array([
+    S_z = 1 / 2 * bk.array([
         [1, 0],
         [0, -1]
     ])
@@ -113,7 +115,7 @@ def nn_Heisenberg_model(
     
     for it in range(n_sites):
         
-        MPO = np.zeros(Hamiltonian_shape, dtype=complex)
+        MPO = bk.zeros(Hamiltonian_shape, dtype=bk.complex)
         
         MPO[:,:,0,0] = identity
         MPO[:,:,1,0] = S_z

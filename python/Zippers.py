@@ -122,7 +122,7 @@ def MPS_MPO_MPS_overlap(
     MPS2: list[npt.NDArray],
     conj: bool = True,
     bk: Backend = Backend('auto')
-) -> npt.NDArray:
+):
     
     """
     Overlap between MPS, MPO, and MPS
@@ -169,7 +169,7 @@ def MPS_MPO_MPS_overlap(
             overlap, rearrange_list_by_values(lst, [ord_overlap-1], [1])
         )
     
-    return bk.to_cpu(overlap)
+    return overlap
 
 
 def MPS_MPO_multiplication(
@@ -311,8 +311,8 @@ def MPO_to_Hamiltonian(
     
     # If the backend is torch, convert to CPU numpy for compatibility with np.linalg.eigh
     # If the backend is numpy, it's already a numpy array
-    if bk.lib == "torch":
-        Hamiltonian = bk.to_cpu(Hamiltonian)
+    # if bk.lib == "torch":
+    #     Hamiltonian = bk.to_cpu(Hamiltonian)
     
     return Hamiltonian
 
