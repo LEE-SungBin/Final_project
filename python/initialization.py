@@ -1,6 +1,6 @@
 import numpy as np
 import numpy.typing as npt
-from python.Zippers import MPS_MPO_MPS_env
+from python.Backend import Backend
 from python.Decomposition import QR, SVD, EIGH
 from python.Contract import Contract
 from copy import deepcopy
@@ -9,7 +9,8 @@ from copy import deepcopy
 def random_initialization(
     Hamiltonian: list[npt.NDArray],
     NKeep: int,
-):
+    bk: Backend = Backend('auto')
+) -> list[npt.NDArray]:
     
     """
 
@@ -53,15 +54,17 @@ def random_initialization(
                 physical_bond
             ]
         
-        mps_at_site_it = np.random.rand(*bond_shape) + 1j * np.random.rand(*bond_shape)
-        
-        temp_matrix = mps_at_site_it.transpose(0, 2, 1).reshape(-1, mps_at_site_it.shape[1])
+        tensor = bk.randn(*bond_shape)
+        mps_at_site_it = bk.to_device(tensor)
+        temp_matrix = bk.transpose(mps_at_site_it, (0, 2, 1)).reshape(-1, mps_at_site_it.shape[1])
         
         left_iso, _ = QR(temp_matrix)
         
-        mps = left_iso.reshape(
-            mps_at_site_it.shape[0], mps_at_site_it.shape[2], mps_at_site_it.shape[1]
-        ).transpose(0, 2, 1)
+        mps = bk.transpose(
+            left_iso.reshape(
+                mps_at_site_it.shape[0], mps_at_site_it.shape[2], mps_at_site_it.shape[1]
+            ), (0, 2, 1)
+        )
 
         init_MPS.append(mps)
     
@@ -71,7 +74,8 @@ def random_initialization(
 def Iterative_diagonalization(
     Hamiltonian: list[npt.NDArray],
     NKeep: int,
-):
+    bk: Backend = Backend('auto')
+) -> list[npt.NDArray]:
     
     """
 
@@ -92,8 +96,8 @@ def Iterative_diagonalization(
     """
     
     MPS = []
-    before_Hamiltonian = np.array([[1.0]])
-    before_tensor = np.array([[[1.0]]])
+    before_Hamiltonian = bk.array([[1.0]])
+    before_tensor = bk.array([[[1.0]]])
     
     for it, local_Hamiltonian in enumerate(Hamiltonian):
         
@@ -104,17 +108,17 @@ def Iterative_diagonalization(
         
         truncated_Hamiltonian = local_Hamiltonian[:,:,:,0]
         
-        identity = np.identity(full_dim).reshape(
+        identity = bk.identity(full_dim).reshape(
             incoming_bond_dim, full_dim, physical_bond_dim
         )
         
         new_Hamiltonian = Contract(
-            "ab,aix,bjx->ij", before_Hamiltonian, identity, identity
+            "ab,aix,bjx->ij", before_Hamiltonian, identity, identity, bk=bk
         )
         
         new_Hamiltonian = new_Hamiltonian + Contract(
             "abc,aix,yxb,cjy->ij", before_tensor,
-            identity, truncated_Hamiltonian, identity
+            identity, truncated_Hamiltonian, identity, bk=bk
         )
         
         if it == len(Hamiltonian) - 1:
@@ -122,7 +126,7 @@ def Iterative_diagonalization(
         else:
             Keep = NKeep
         
-        eigvals, eigvecs = EIGH(new_Hamiltonian)
+        eigvals, eigvecs = EIGH(new_Hamiltonian, bk=bk)
         
         """
         Get the lowest Keep eigvals and its corresponding eigvecs
@@ -130,17 +134,22 @@ def Iterative_diagonalization(
         eigvals = eigvals[-Keep:]
         eigvecs = eigvecs[:, -Keep:]
         
-        before_Hamiltonian = eigvecs.conj().T @ new_Hamiltonian @ eigvecs
+        # Ensure all tensors are in the correct backend type
+        eigvecs = bk.to_device(eigvecs)
+        new_Hamiltonian = bk.to_device(new_Hamiltonian)
+        
+        # Perform matrix multiplication using backend functions
+        before_Hamiltonian = bk.matmul(bk.matmul(bk.conj(eigvecs).T, new_Hamiltonian), eigvecs)
         
         update_isometry = Contract(
-            "iak,aj->ijk", identity, eigvecs.conj()
+            "iak,aj->ijk", identity, eigvecs.conj(), bk=bk
         )
         MPS.append(update_isometry)
         
         before_tensor = Contract(
             "abc,aix,yxbj,cky->ijk",
             before_tensor, update_isometry,
-            local_Hamiltonian, update_isometry.conj()
+            local_Hamiltonian, update_isometry.conj(), bk=bk
         )
     
     return MPS

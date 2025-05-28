@@ -2,6 +2,8 @@ import numpy as np
 import numpy.typing as npt
 from copy import deepcopy
 from python.Zippers import MPS_MPS_overlap, MPS_MPO_MPS_overlap
+from python.Backend import Backend
+from typing import List, Optional, Tuple, Union
 
 
 def XXZ_model(
@@ -136,6 +138,7 @@ def XY_model(
     n_sites: int,
     J: float = 1.0,
     Gamma: float = 1.0,
+    bk: Backend = Backend('auto')
 ) -> list[npt.NDArray]:
     
     
@@ -154,17 +157,17 @@ def XY_model(
     Hamiltonian = []
     Hamiltonian_shape = [2, 2, 4, 4]
     
-    identity = np.identity(2)
-    S_x = 1 / 2 * np.array([
+    identity = bk.identity(2)
+    S_x = 1 / 2 * bk.array([
         [0, 1],
         [1, 0]
     ]
     )
-    S_y = 1 / 2 * np.array([
+    S_y = 1 / 2 * bk.array([
         [0, -1j],
         [1j, 0]
     ])
-    S_z = 1 / 2 * np.array([
+    S_z = 1 / 2 * bk.array([
         [1, 0],
         [0, -1]
     ])
@@ -173,7 +176,7 @@ def XY_model(
     
     for it in range(n_sites):
         
-        MPO = np.zeros(Hamiltonian_shape, dtype=complex)
+        MPO = bk.zeros(Hamiltonian_shape, dtype=bk.complex)
         
         MPO[:,:,0,0] = identity
         MPO[:,:,1,0] = S_x

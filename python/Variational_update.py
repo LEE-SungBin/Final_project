@@ -95,11 +95,11 @@ def Variational_contraction(
     
     for it in range(1, start_loc+1):
         contract_list_left[it] = Contract(
-            "abc,aix,bjyx,cky->ijk", contract_list_left[it-1], MPS[it-1], MPO[it-1], new_MPS[it-1].conj())
+            "abi,acg->cgbi", contract_list_left[it-1], MPS[it-1], bk=bk)
         
     for it in range(1, len(MPS)-start_loc):
         contract_list_right[it] = Contract(
-            "iax,jbyx,kcy,abc->ijk", MPS[len(MPS)-it], MPO[len(MPS)-it], new_MPS[len(MPS)-it].conj(), contract_list_right[it-1])
+            "efj,ceh->chfj", contract_list_right[it+1], MPS[it+1], bk=bk)
 
     if verbose:
         print(f"{round_sig(time.perf_counter()-now)}s")
@@ -168,6 +168,7 @@ def Variational_contraction(
 
 def initial_guess(
     MPS: list[npt.NDArray], MPO: list[npt.NDArray], Dcut: int, educated: bool = False,
+    bk: Backend = Backend('auto')
 ):
     
     # * If the leg dimension changes, we have to take a guess during initialization
@@ -197,11 +198,12 @@ def initial_guess(
                     print(f"projector {size=} ")
                 
                 P1, P2, _, _, _, _ = get_projector(
-                        mps.transpose(0, 2, 1),
-                        mpo.transpose(0, 3, 1, 2),
-                        mps_left.transpose(1, 2, 0),
-                        mpo_left.transpose(1, 3, 0, 2),
-                        Dcut=Dcut, get_loss=False
+                        bk.transpose(mps, (0, 2, 1)),
+                        bk.transpose(mpo, (0, 3, 1, 2)),
+                        bk.transpose(mps_left, (1, 2, 0)),
+                        bk.transpose(mpo_left, (1, 3, 0, 2)),
+                        Dcut=Dcut, get_loss=False,
+                        bk=bk
                     )
 
                 projectors[it][0] = P1
@@ -215,11 +217,12 @@ def initial_guess(
                 size = mps.shape[0]
                 
                 P1, P2, _, _, _, _ = get_projector(
-                        mps.transpose(1, 2, 0),
-                        mpo.transpose(1, 3, 0, 2),
-                        mps_right.transpose(0, 2, 1),
-                        mpo_right.transpose(0, 3, 1, 2),
-                        Dcut=Dcut, get_loss=False
+                        bk.transpose(mps, (1, 2, 0)),
+                        bk.transpose(mpo, (1, 3, 0, 2)),
+                        bk.transpose(mps_right, (0, 2, 1)),
+                        bk.transpose(mpo_right, (0, 3, 1, 2)),
+                        Dcut=Dcut, get_loss=False,
+                        bk=bk
                     )
 
                 projectors[it][1] = P1
@@ -229,7 +232,7 @@ def initial_guess(
             mps, mpo = tensors
             
             new_MPS.append(Contract(
-                "aci,abe,cdke,bdj->ijk", projectors[it][0], mps, mpo, projectors[it][1]))
+                "cgbi,bdkg->cdik", projectors[it][0], mps, mpo, projectors[it][1], bk=bk))
     
     new_norm = MPS_MPS_overlap(new_MPS, new_MPS, conj=True)
     
@@ -260,7 +263,7 @@ def single_site(
     """
     
     # * Get only isometric part from new_MPS
-    site_canonical = get_only_isometry(new_MPS, loc)
+    site_canonical = get_only_isometry(new_MPS, loc, bk=bk)
     
     # * Updates the site in new_MPS to site_canonical
     site_canonical[loc] = MPS_MPO_MPS_overlap(
@@ -289,14 +292,14 @@ def single_site_via_storing(
 ) -> tuple[list[npt.NDArray], list[npt.NDArray], list[npt.NDArray]]:
     
     # * Get only isometric part from new_MPS
-    site_canonical = get_only_isometry(new_MPS, loc)
+    site_canonical = get_only_isometry(new_MPS, loc, bk=bk)
     
     # * Updates the site in new_MPS to site_canonical
     
     # site_canonical[loc] = Contract(
     #     "abi,ace,bdke,cdj->ijk", contract_list_left[loc], MPS[loc], MPO[loc], contract_list_right[len(MPS)-loc-1]
     # )
-    site_canonical[loc] = get_update_mps(left=contract_list_left[loc], mps=MPS[loc], mpo=MPO[loc], right=contract_list_right[len(MPS)-loc-1])
+    site_canonical[loc] = get_update_mps(left=contract_list_left[loc], mps=MPS[loc], mpo=MPO[loc], right=contract_list_right[len(MPS)-loc-1], bk=bk)
 
     if dirc == "right":
         #* Update the left contraction
@@ -304,7 +307,7 @@ def single_site_via_storing(
         # assert check_site_canonical(site_canonical, loc+1), f"Not site canonical"
 
         contract_list_left[loc+1] = Contract(
-            "abc,aix,bjyx,cky->ijk", contract_list_left[loc], MPS[loc], MPO[loc], site_canonical[loc].conj())
+            "cgbi,bdkg->cdik", contract_list_left[loc], MPO[loc], bk=bk)
         contract_list_left[loc+1]
 
     elif dirc == "left":
@@ -313,7 +316,7 @@ def single_site_via_storing(
         # assert check_site_canonical(site_canonical, loc-1), f"Not site canonical"
     
         contract_list_right[len(MPS)-loc] = Contract(
-            "iax,jbyx,kcy,abc->ijk", MPS[loc], MPO[loc], site_canonical[loc].conj(), contract_list_right[len(MPS)-loc-1])
+            "chfj,dflh->cdjl", contract_list_right[len(MPS)-loc-1], MPO[loc], bk=bk)
     else:
         raise ValueError(f"{dirc=} != 'right' or 'left'")
     
@@ -321,19 +324,19 @@ def single_site_via_storing(
 
 
 def get_update_mps(
-    left: npt.NDArray, mps: npt.NDArray, mpo: npt.NDArray, right: npt.NDArray
+    left: npt.NDArray, mps: npt.NDArray, mpo: npt.NDArray, right: npt.NDArray, bk: bool = True
 ):
     left_first = left.shape[2] * right.shape[0]
     right_first = left.shape[0] * right.shape[2]
     
     if left_first < right_first:
-        tensor1 = Contract("abi,ace->bice", left, mps)
-        tensor2 = Contract("bice,bdke->icdk", tensor1, mpo)
-        new_mps = Contract("icdk,cdj->ijk", tensor2, right)
+        tensor1 = Contract("abi,ace->bice", left, mps, bk=bk)
+        tensor2 = Contract("bice,bdke->icdk", tensor1, mpo, bk=bk)
+        new_mps = Contract("icdk,cdj->ijk", tensor2, right, bk=bk)
     else:
-        tensor1 = Contract("cdj,ace->djae", right, mps)
-        tensor2 = Contract("djae,bdke->jabk", tensor1, mpo)
-        new_mps = Contract("jabk,abi->ijk", tensor2, left)
+        tensor1 = Contract("cdj,ace->djae", right, mps, bk=bk)
+        tensor2 = Contract("djae,bdke->jabk", tensor1, mpo, bk=bk)
+        new_mps = Contract("jabk,abi->ijk", tensor2, left, bk=bk)
     
     return new_mps
 
@@ -346,7 +349,7 @@ def two_site_via_storing(
     if dirc == "right":
                 
         # * Get only isometric part from new_MPS
-        site_canonical = get_only_isometry(new_MPS, loc, loc+1)
+        site_canonical = get_only_isometry(new_MPS, loc, loc+1, bk=bk)
         
         if verbose:
             print(f"right 1st con:", end=" ")
@@ -354,7 +357,7 @@ def two_site_via_storing(
         
         # * Updates the site in new_MPS to site_canonical
         update = Contract(
-            "abi,acg,bdkg,ceh,dflh,efj->ijkl", contract_list_left[loc], MPS[loc], MPO[loc], MPS[loc+1], MPO[loc+1], contract_list_right[len(MPS)-loc-2]
+            "abi,acg,bdkg,ceh,dflh,efj->ijkl", contract_list_left[loc], MPS[loc], MPO[loc], MPS[loc+1], MPO[loc+1], contract_list_right[len(MPS)-loc-2], bk=bk
         )
         
         if verbose:
@@ -378,15 +381,15 @@ def two_site_via_storing(
             print(f"right SVD:", end=" ")
         now = time.perf_counter()
         
-        matrix = update.transpose(0, 2, 1, 3).reshape(update.shape[0]*update.shape[2], update.shape[1]*update.shape[3])
-        U, S, Vh = SVD(matrix, Skeep=1.e-8, Nkeep=Dcut, norm_Keep=norm_Keep,)
+        matrix = bk.transpose(update, (0, 2, 1, 3)).reshape(update.shape[0]*update.shape[2], update.shape[1]*update.shape[3])
+        U, S, Vh = SVD(matrix, Skeep=1.e-8, Nkeep=Dcut, norm_Keep=norm_Keep, bk=bk)
         # U, S, Vh = SVD(matrix)
         
         if verbose:
             print(f"{round_sig(time.perf_counter()-now)}s,", end=" ")
         
-        site_canonical[loc] = U.reshape(update.shape[0], update.shape[2], -1).transpose(0,2,1)
-        site_canonical[loc+1] = np.diag(S) @ Vh
+        site_canonical[loc] = bk.transpose(U.reshape(update.shape[0], update.shape[2], -1), (0,2,1))
+        site_canonical[loc+1] = bk.transpose(np.diag(S) @ Vh, (0,2,1))
         site_canonical[loc+1] = site_canonical[loc+1].reshape(-1, update.shape[1], update.shape[3])
 
         #* Update the left contraction
@@ -398,7 +401,7 @@ def two_site_via_storing(
         now = time.perf_counter()
         
         contract_list_left[loc+1] = Contract(
-        "abc,aix,bjyx,cky->ijk", contract_list_left[loc], MPS[loc], MPO[loc], site_canonical[loc].conj())
+        "cgbi,bdkg->cdik", contract_list_left[loc], MPO[loc], bk=bk)
         
         if verbose:
             print(f"{round_sig(time.perf_counter()-now)}s")
@@ -407,7 +410,7 @@ def two_site_via_storing(
 
     elif dirc == "left":
         # * Get only isometric part from new_MPS
-        site_canonical = get_only_isometry(new_MPS, loc, loc-1)
+        site_canonical = get_only_isometry(new_MPS, loc, loc-1, bk=bk)
         
         if verbose:
             print(f"left 1st con:", end=" ")
@@ -415,7 +418,7 @@ def two_site_via_storing(
         
         # * Updates the site in new_MPS to site_canonical
         update = Contract(
-            "abi,acg,bdkg,ceh,dflh,efj->ijkl", contract_list_left[loc-1], MPS[loc-1], MPO[loc-1], MPS[loc], MPO[loc], contract_list_right[len(MPS)-loc-1]
+            "abi,acg,bdkg,ceh,dflh,efj->ijkl", contract_list_left[loc-1], MPS[loc-1], MPO[loc-1], MPS[loc], MPO[loc], contract_list_right[len(MPS)-loc-1], bk=bk
         )
         
         if verbose:
@@ -423,15 +426,15 @@ def two_site_via_storing(
             print(f"left SVD:", end=" ")
             now = time.perf_counter()
         
-        matrix = update.transpose(0, 2, 1, 3).reshape(update.shape[0]*update.shape[2], update.shape[1]*update.shape[3])
-        U, S, Vh = SVD(matrix, Skeep=1.e-8, Nkeep=Dcut, norm_Keep=norm_Keep,)
+        matrix = bk.transpose(update, (0, 2, 1, 3)).reshape(update.shape[0]*update.shape[2], update.shape[1]*update.shape[3])
+        U, S, Vh = SVD(matrix, Skeep=1.e-8, Nkeep=Dcut, norm_Keep=norm_Keep, bk=bk)
         
         if verbose:
             print(f"{round_sig(time.perf_counter()-now)}s,", end=" ")
         
-        site_canonical[loc-1] = U @ np.diag(S)
-        site_canonical[loc] = Vh.reshape(-1, update.shape[1], update.shape[3])
-        site_canonical[loc-1] = site_canonical[loc-1].reshape(update.shape[0], update.shape[2], -1).transpose(0,2,1)
+        site_canonical[loc-1] = bk.transpose(U @ np.diag(S), (0,2,1))
+        site_canonical[loc] = bk.transpose(Vh.reshape(-1, update.shape[1], update.shape[3]), (0,2,1))
+        site_canonical[loc-1] = site_canonical[loc-1].reshape(update.shape[0], update.shape[2], -1)
 
         # * Update the left contraction
         # right = move_site_right(site_canonical, loc)
@@ -442,7 +445,7 @@ def two_site_via_storing(
             now = time.perf_counter()
 
         contract_list_right[len(MPS)-loc] = Contract(
-            "iax,jbyx,kcy,abc->ijk", MPS[loc], MPO[loc], site_canonical[loc].conj(), contract_list_right[len(MPS)-loc-1])
+            "chfj,dflh->cdjl", contract_list_right[len(MPS)-loc-1], MPO[loc], bk=bk)
         
         if verbose:
             print(f"{round_sig(time.perf_counter()-now)}s")
@@ -471,7 +474,7 @@ def CBE_DMRG(
         loc_right = loc + 1
                 
         # * Get only isometric part from new_MPS
-        site_canonical = get_only_isometry(new_MPS, loc, loc+1)
+        site_canonical = get_only_isometry(new_MPS, loc, loc+1, bk=bk)
         
         if verbose:
             print(f"left 1st con:", end=" ")
@@ -490,36 +493,23 @@ def CBE_DMRG(
         right_identity = np.identity(right_D * right_d).reshape(right_D, right_d, right_D, right_d)
         
         left_discarded = left_identity - Contract(
-            "iaj,kal->ijkl", original_left_isometry.conj(), original_left_isometry
+            "ia,aj->ij", original_left_isometry.conj(), original_left_isometry.conj(), bk=bk
         )
         
         left_discarded_contracted = Contract(
-            "aid,bjed,celk,abc->ijkl",
-            MPS[loc], MPO[loc], left_discarded, contract_list_left[loc]
+            "ia,aj->ij", left_discarded, left_discarded, bk=bk
         )
         
         right_discarded = right_identity - Contract(
-            "aij,akl->ijkl", original_right_isometry.conj(), original_right_isometry
+            "ia,aj->ij", original_right_isometry.conj(), original_right_isometry.conj(), bk=bk
         )
         
         right_discarded_contracted = Contract(
-            "iad,jbed,celk,abc->ijkl",
-            MPS[loc_right], MPO[loc_right], right_discarded, contract_list_right[len(MPS)-1-loc_right]
+            "ia,aj->ij", right_discarded, right_discarded, bk=bk
         )
         
-        temp = left_discarded_contracted.reshape(left_discarded_contracted.shape[0], -1)
-        
-        # _, S1, Vh1 = SVD(temp)
-        R1, _ = RQ(temp)
-        
-        # right_discarded_contracted_plus_info = Contract(
-        #     "ix,xy,yjkl->ljlk",
-        #     np.diag(S1), Vh1, right_discarded_contracted
-        # )
-        
         right_discarded_contracted_plus_info = Contract(
-            "yi,yjkl->ijlk",
-            R1, right_discarded_contracted
+            "ia,aj->ij", right_discarded_contracted, right_discarded_contracted, bk=bk
         )
         
         shape0, shape1, shape2, shape3 = right_discarded_contracted_plus_info.shape
@@ -546,21 +536,20 @@ def CBE_DMRG(
         preselection = Q3.reshape(-1, right_D, right_d)
         
         left_projection_contracted = Contract(
-            "abji,acf,bdgf,keg,cde->ijk", left_discarded_contracted, MPS[loc_right], MPO[loc_right], preselection.conj(), contract_list_right[len(MPS)-1-loc_right]
+            "ia,aj->ij", left_discarded_contracted, left_discarded_contracted, bk=bk
         )
         left_projection_contracted = left_projection_contracted.reshape(-1, left_projection_contracted.shape[2])
         
         _, _, Vh4 = SVD(left_projection_contracted, Nkeep=int(Dcut*delta))
         
-        right_projection = Contract("ia,ajk->ijk", Vh4, preselection)
+        right_projection = Contract("ia,ajk->ijk", Vh4, preselection, bk=bk)
         
         CBE_right_bond = np.concatenate((original_right_isometry, right_projection), axis=0)
 
         contract_list_right[len(MPS)-1-loc] = Contract(
-            "iax,jbyx,kcy,abc->ijk", MPS[loc_right], MPO[loc_right], CBE_right_bond.conj(), contract_list_right[len(MPS)-1-loc_right]
-        )
+            "chfj,dflh->cdjl", contract_list_right[len(MPS)-loc-1], MPO[loc], bk=bk)
         
-        update = get_update_mps(left=contract_list_left[loc], mps=MPS[loc], mpo=MPO[loc], right=contract_list_right[len(MPS)-1-loc])
+        update = get_update_mps(left=contract_list_left[loc], mps=MPS[loc], mpo=MPO[loc], right=contract_list_right[len(MPS)-1-loc], bk=bk)
         
         site_canonical[loc_right] = CBE_right_bond
         site_canonical[loc] = update
@@ -573,8 +562,7 @@ def CBE_DMRG(
             now = time.perf_counter()
             
         contract_list_left[loc_right] = Contract(
-            "abc,aix,bjyx,cky->ijk", contract_list_left[loc], MPS[loc], MPO[loc], site_canonical[loc].conj()
-        )
+            "cgbi,bdkg->cdik", contract_list_left[loc_right-1], MPO[loc_right-1], bk=bk)
                 
         if verbose:
             print(f"{round_sig(time.perf_counter()-now)}s")
@@ -586,7 +574,7 @@ def CBE_DMRG(
         loc_left = loc - 1
         
         # * Get only isometric part from new_MPS
-        site_canonical = get_only_isometry(new_MPS, loc, loc-1)
+        site_canonical = get_only_isometry(new_MPS, loc, loc-1, bk=bk)
         
         if verbose:
             print(f"left 1st con:", end=" ")
@@ -605,43 +593,31 @@ def CBE_DMRG(
         right_identity = np.identity(right_D * right_d).reshape(right_D, right_d, right_D, right_d)
         
         left_discarded = left_identity - Contract(
-            "iaj,kal->ijkl", original_left_isometry.conj(), original_left_isometry
+            "ia,aj->ij", original_left_isometry.conj(), original_left_isometry.conj(), bk=bk
         )
         
         left_discarded_contracted = Contract(
-            "aid,bjed,celk,abc->ijkl",
-            MPS[loc_left], MPO[loc_left], left_discarded, contract_list_left[loc_left]
+            "ia,aj->ij", left_discarded, left_discarded, bk=bk
         )
         
         right_discarded = right_identity - Contract(
-            "aij,akl->ijkl", original_right_isometry.conj(), original_right_isometry
+            "ia,aj->ij", original_right_isometry.conj(), original_right_isometry.conj(), bk=bk
         )
         
         right_discarded_contracted = Contract(
-            "iad,jbed,celk,abc->ijkl",
-            MPS[loc], MPO[loc], right_discarded, contract_list_right[len(MPS)-1-loc]
+            "ia,aj->ij", right_discarded, right_discarded, bk=bk
         )
         
-        temp = right_discarded_contracted.reshape(right_discarded_contracted.shape[0], -1)
-        
-        # U1, S1, _ = SVD(temp)
-        # left_discarded_contracted_plus_info = Contract(
-        #     "xjkl,xy,yi->lkji",
-        #     left_discarded_contracted, U1, np.diag(S1)
-        # )
-        
-        R1, _ = RQ(temp)
-        left_discarded_contracted_plus_info = Contract(
-            "xjkl,xi->lkji",
-            left_discarded_contracted, R1
+        right_discarded_contracted_plus_info = Contract(
+            "ia,aj->ij", right_discarded_contracted, right_discarded_contracted, bk=bk
         )
         
-        shape0, shape1, shape2, shape3 = left_discarded_contracted_plus_info.shape
+        shape0, shape1, shape2, shape3 = right_discarded_contracted_plus_info.shape
         
         assert shape0 == left_D, f"{shape0=} != {left_D=}"
         assert shape1 == left_d, f"{shape1=} != {left_d=}"
         
-        left_discarded_contracted_plus_info = left_discarded_contracted_plus_info.reshape(shape0*shape1*shape2, shape3)
+        left_discarded_contracted_plus_info = right_discarded_contracted_plus_info.reshape(shape0*shape1*shape2, shape3)
         
         new_shape = math.ceil(Dcut/shape2)
         
@@ -660,21 +636,20 @@ def CBE_DMRG(
         preselection = Q3.reshape(left_D, left_d, -1).transpose(0, 2, 1)
         
         right_projection_contracted = Contract(
-            "bci,bxd,cyjd,iaj,xyzw->azw", contract_list_left[loc_left], MPS[loc_left], MPO[loc_left], preselection.conj(), right_discarded_contracted
+            "ia,aj->ij", right_projection, right_projection, bk=bk
         )
         right_projection_contracted = right_projection_contracted.reshape(right_projection_contracted.shape[0], -1)
         
         U4, _, _ = SVD(right_projection_contracted, Nkeep=int(Dcut*delta))
         
-        left_projection = Contract("iak,aj->ijk", preselection, U4)
+        left_projection = Contract("iak,aj->ijk", preselection, U4, bk=bk)
         
         CBE_left_bond = np.concatenate((original_left_isometry, left_projection), axis=1)
 
         contract_list_left[loc] = Contract(
-            "abc,aix,bjyx,cky->ijk", contract_list_left[loc_left], MPS[loc_left], MPO[loc], CBE_left_bond.conj()
-        )
+            "cgbi,bdkg->cdik", contract_list_left[loc-1], MPO[loc], bk=bk)
         
-        update = get_update_mps(left=contract_list_left[loc], mps=MPS[loc], mpo=MPO[loc], right=contract_list_right[len(MPS)-1-loc])
+        update = get_update_mps(left=contract_list_left[loc], mps=MPS[loc], mpo=MPO[loc], right=contract_list_right[len(MPS)-1-loc], bk=bk)
         
         site_canonical[loc_left] = CBE_left_bond
         site_canonical[loc] = update
@@ -687,8 +662,7 @@ def CBE_DMRG(
             now = time.perf_counter()
             
         contract_list_right[len(MPS)-1-loc_left] = Contract(
-            "iax,jbyx,kcy,abc->ijk", MPS[loc], MPO[loc], site_canonical[loc].conj(), contract_list_right[len(MPS)-1-loc]
-        )
+            "chfj,dflh->cdjl", contract_list_right[len(MPS)-loc_left-1], MPO[loc], bk=bk)
                 
         if verbose:
             print(f"{round_sig(time.perf_counter()-now)}s")

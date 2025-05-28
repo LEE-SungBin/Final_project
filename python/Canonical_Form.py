@@ -1,4 +1,4 @@
-import numpy as numpy
+import numpy as np
 import numpy.typing as npt
 from copy import deepcopy
 
@@ -7,11 +7,12 @@ from python.Decomposition import *
 from python.Contract import *
 from python.Zippers import MPS_MPS_overlap
 from python.utils import get_entropy
-
+from python.Backend import Backend
 
 def site_canonical_MPS(
     MPS: list[npt.NDArray[np.complex128]],
-    loc: int = 0, Dcut: int | None = None
+    loc: int = 0, Dcut: int | None = None,
+    bk: Backend = Backend('auto')
 ) -> list[npt.NDArray[np.complex128]]:
     
     """
@@ -24,39 +25,40 @@ def site_canonical_MPS(
     len_MPS = len(MPS)
     assert loc < len_MPS, f"{loc=} >= {len(MPS)=}"
     
-    check_mps(MPS)
+    check_mps(MPS, bk)
     
     copy: list[npt.NDArray[np.complex128]] = []
     for it, mps in enumerate(MPS):
-        copy.append(deepcopy(mps))
+        copy.append(bk.to_device(deepcopy(mps)))
     
-    prod_left = np.identity(copy[0].shape[0], dtype=np.complex128)
-    prod_right = np.identity(copy[-1].shape[1], dtype=np.complex128)
+    prod_left = bk.identity(copy[0].shape[0], dtype=bk.complex)
+    prod_right = bk.identity(copy[-1].shape[1], dtype=bk.complex)
     
     for it in range(loc):
-        matrix = Contract("ia,ajk->ijk", prod_left, copy[it])
-        temp = matrix.transpose(0,2,1).reshape(-1, matrix.shape[1])
+        matrix = Contract("ia,ajk->ijk", prod_left, copy[it], bk=bk)
+        temp = bk.transpose(matrix, (0,2,1))
+        temp = bk.reshape(temp, (-1, matrix.shape[1]))
         
         U, S, Vh = SVD(temp, Nkeep=Dcut, Skeep=1.e-8)
         
-        copy[it] = U.reshape(matrix.shape[0], matrix.shape[2], -1).transpose(0,2,1)
-        prod_left = np.diag(S) @ Vh
+        copy[it] = bk.transpose(bk.reshape(U, (matrix.shape[0], matrix.shape[2], -1)), (0,2,1))
+        prod_left = bk.matmul(bk.diag(S), Vh)
         
-        assert left_isometry(copy[it]) < 1.e-6, f"copy[{it}] not left isometry\nleft_isometry(copy[{it}])={left_isometry(copy[it])}\nU.conj().T@U={U.conj().T@U}\nleft_prod_MPS(copy[{it}])={left_prod_MPS(copy[it])}"
+        assert left_isometry(copy[it], bk) < 1.e-6, f"copy[{it}] not left isometry\nleft_isometry(copy[{it}])={left_isometry(copy[it], bk)}\nU.conj().T@U={bk.matmul(bk.conj(U).T, U)}\nleft_prod_MPS(copy[{it}], bk)={left_prod_MPS(copy[it], bk)}"
     
     for it in range(loc+1, len_MPS)[::-1]:
-        matrix = Contract("iak,aj->ijk", copy[it], prod_right)
-        temp = matrix.reshape(matrix.shape[0], -1)
+        matrix = Contract("iak,aj->ijk", copy[it], prod_right, bk=bk)
+        temp = bk.reshape(matrix, (matrix.shape[0], -1))
         
         U, S, Vh = SVD(temp, Nkeep=Dcut, Skeep=1.e-8)
         
-        copy[it] = Vh.reshape(-1, matrix.shape[1], matrix.shape[2])
-        prod_right = U @ np.diag(S)
+        copy[it] = bk.reshape(Vh, (-1, matrix.shape[1], matrix.shape[2]))
+        prod_right = bk.matmul(U, bk.diag(S))
         
-        assert right_isometry(copy[it]) < 1.e-6, f"copy[{it}] not right isometry\nright_isometry(copy[{it}])={right_isometry(copy[it])}\ncopy[{it}]={copy[it]}"
+        assert right_isometry(copy[it], bk) < 1.e-6, f"copy[{it}] not right isometry\nright_isometry(copy[{it}])={right_isometry(copy[it], bk)}\ncopy[{it}]={copy[it]}"
     
-    copy[loc] = Contract("ia,abk,bj->ijk", prod_left, copy[loc], prod_right)
-    
+    copy[loc] = Contract("ia,abk,bj->ijk", prod_left, copy[loc], prod_right, bk=bk)
+
     return copy
 
 
@@ -65,40 +67,50 @@ def site_to_bond_canonical_MPS(
     isometry: npt.NDArray,
     dirc: str = "left",
     tol: float = 1e-6,
+    bk: Backend = Backend('auto')
 ):
     
     ortho_shape0, ortho_shape1, ortho_shape2 = orthogonality_center.shape
     iso_shape0, iso_shape1, iso_shape2 = isometry.shape
     
+    orthogonality_center = bk.to_device(orthogonality_center)
+    isometry = bk.to_device(isometry)
+    
     if dirc == "left":
         
         assert orthogonality_center.shape[0] == isometry.shape[1]
-        assert left_isometry(isometry) < tol, print(f"{left_isometry(isometry)=}")    
+        assert left_isometry(isometry, bk) < tol, print(f"{left_isometry(isometry, bk)=}")    
         
-        tensor = orthogonality_center.reshape(ortho_shape0, ortho_shape1 * ortho_shape2)
+        tensor = bk.reshape(orthogonality_center, (ortho_shape0, ortho_shape1 * ortho_shape2))
         U, Sigma, Vh = SVD(tensor)
         
-        left_isometry_mps = Contract("iak,aj->ijk", isometry, U)
-        right_isometry_mps = Vh.reshape(-1, ortho_shape1, ortho_shape2)
+        left_isometry_mps = Contract("iak,aj->ijk", isometry, U, bk=bk)
+        right_isometry_mps = bk.reshape(Vh, (-1, ortho_shape1, ortho_shape2))
         
-        assert left_isometry(left_isometry_mps) < tol, print(f"{left_isometry(left_isometry_mps)=}")
-        assert right_isometry(right_isometry_mps) < tol, print(f"{right_isometry(right_isometry_mps)=}")
+        assert left_isometry(left_isometry_mps, bk) < tol, print(f"{left_isometry(left_isometry_mps, bk)=}")
+        assert right_isometry(right_isometry_mps, bk) < tol, print(f"{right_isometry(right_isometry_mps, bk)=}")
         assert left_isometry_mps.shape[1] == right_isometry_mps.shape[0]
     
     elif dirc == "right":
         
         assert orthogonality_center.shape[1] == isometry.shape[0]
-        assert right_isometry(isometry) < tol, print(f"{right_isometry(isometry)=}")
+        assert right_isometry(isometry, bk) < tol, print(f"{right_isometry(isometry, bk)=}")
                 
-        tensor = orthogonality_center.transpose(0, 2, 1).reshape(ortho_shape0 * ortho_shape2, ortho_shape1)
+        tensor = bk.reshape(bk.transpose(orthogonality_center, (0, 2, 1)), (ortho_shape0 * ortho_shape2, ortho_shape1))
         U, Sigma, Vh = SVD(tensor)
         
-        left_isometry_mps = U.reshape(ortho_shape0, ortho_shape2, -1).transpose(0, 2, 1)
-        right_isometry_mps = Contract("ia,ajk->ijk", Vh, isometry)
+        left_isometry_mps = bk.transpose(bk.reshape(U, (ortho_shape0, ortho_shape2, -1)), (0, 2, 1))
+        right_isometry_mps = Contract("ia,ajk->ijk", Vh, isometry, bk=bk)
         
-        assert left_isometry(left_isometry_mps) < tol, print(f"{left_isometry(left_isometry_mps)=}")
-        assert right_isometry(right_isometry_mps) < tol, print(f"{right_isometry(right_isometry_mps)=}")
+        assert left_isometry(left_isometry_mps, bk) < tol, print(f"{left_isometry(left_isometry_mps, bk)=}")
+        assert right_isometry(right_isometry_mps, bk) < tol, print(f"{right_isometry(right_isometry_mps, bk)=}")
         assert left_isometry_mps.shape[1] == right_isometry_mps.shape[0]
+    
+    # Convert back to numpy arrays if needed
+    if bk.lib == "torch":
+        left_isometry_mps = bk.to_cpu(left_isometry_mps)
+        right_isometry_mps = bk.to_cpu(right_isometry_mps)
+        Sigma = bk.to_cpu(Sigma)
         
     return left_isometry_mps, right_isometry_mps, Sigma
 
@@ -107,13 +119,14 @@ def Gamma_Lambda_MPS(
     MPS: list[npt.NDArray],
     Dcut: int | None = None,
     verbose: bool = False,
+    bk: Backend = Backend('auto')
 ):
     """
         2           2
         |           |
     0 -- -- 1   0 -- -- 1
     """
-    check_mps(MPS)
+    check_mps(MPS, bk)
     len_MPS = len(MPS)
     
     norm = MPS_MPS_overlap(MPS, MPS)
@@ -121,43 +134,36 @@ def Gamma_Lambda_MPS(
     assert np.abs(norm - 1) < 1.e-6, f"{norm=} != 1, no canonical form exists"
     
     Gammas: list[npt.NDArray] = []
-    Lambdas: list[list[npt.NDArray]] = [[np.array([1]) for _ in range(2)] for _ in range(len_MPS)]
+    Lambdas: list[list[npt.NDArray]] = [[bk.array([1]) for _ in range(2)] for _ in range(len_MPS)]
     
     right_can = site_canonical_MPS(MPS, loc=0)
     if verbose:
         print(f"Canonical form finished")
     
-    # right_can = site_canonical_MPS(MPS, loc=0, Dcut=Dcut)
-    
-    # assert right_isometry(right_can[0]) < 1.e-6, f"right canonical error, {right_isometry(right_can[0])=}"
-    
-    left_prod = np.identity(right_can[0].shape[0])
+    left_prod = bk.identity(right_can[0].shape[0])
     for it in range(len_MPS):
         if verbose:
             print(f"{it}, {left_prod.shape=}, {right_can[it].shape=}")
-        tensor = Tensordot(left_prod, right_can[it], axes=[(1), (0)])
-        matrix = tensor.transpose(0,2,1).reshape(
+        tensor = bk.tensordot(left_prod, right_can[it], axes=[(1), (0)])
+        matrix = bk.transpose(tensor, (0,2,1)).reshape(
             -1, tensor.shape[1])
 
         U, S, Vh = SVD(matrix, Skeep=1.e-8, Nkeep=Dcut)
-        # U, S, Vh = SVD(matrix, Skeep=1.e-8)
         
         if it < len_MPS-1:
             Lambdas[it][1] = S
             Lambdas[it+1][0] = S
-        # if it == len_MPS-1:
-        #     assert len(S.shape) == 1, f"{S=} != [1.0]"
-        #     assert np.allclose(S, np.identity(1)), f"{S=} != [1.0]"
         
-        left_prod = np.diag(S) @ Vh
+        left_prod = bk.diag(S) @ Vh
         
-        left_can = U.reshape(
-            tensor.shape[0], tensor.shape[2], -1).transpose(0,2,1)
+        left_can = bk.transpose(
+            U.reshape(
+                tensor.shape[0], tensor.shape[2], -1), (0,2,1))
         
         assert left_isometry(left_can) < 1.e-6, f"left canonical error, {left_isometry(left_can)=}"
         
-        Gammas.append(Tensordot(
-            np.diag(1/Lambdas[it][0]), left_can, axes=[(1), (0)]))
+        Gammas.append(bk.tensordot(
+            bk.diag(1/Lambdas[it][0]), left_can, axes=[(1), (0)]))
         
     return Gammas, Lambdas        
 
@@ -165,7 +171,8 @@ def Gamma_Lambda_MPS(
 def dist_from_vidal_mps(
     Gammas: list[npt.NDArray],
     Lambdas: list[list[npt.NDArray]],
-    return_list: bool = False
+    return_list: bool = False,
+    bk: Backend = Backend('auto')
 ) -> list | float:
     
     distance = 0
@@ -174,21 +181,15 @@ def dist_from_vidal_mps(
     dists = [0.0 for _ in range(length)]
     
     for it, gamma in enumerate(Gammas):
-        # print(f"\n{it}", end=" ")
+        approx = left_gauge(gamma, Lambdas[it][0], bk)
+        left = scale_inv_id(approx, bk)
         
-        approx = left_gauge(gamma, Lambdas[it][0])
-        left = scale_inv_id(approx)
-        
-        # print(f"left: {round_sig(left)}", end=" ")
-        # print(f"\n{round_sig(approx)}")
         distance += left
         dists[it] += left / 2
         
-        approx = right_gauge(gamma, Lambdas[it][1])
-        right = scale_inv_id(approx)
+        approx = right_gauge(gamma, Lambdas[it][1], bk)
+        right = scale_inv_id(approx, bk)
         
-        # print(f"right: {round_sig(right)}", end=" ")
-        # print(f"\n{round_sig(approx)}")
         distance += right
         dists[it] += right / 2
     
@@ -199,7 +200,8 @@ def dist_from_vidal_mps(
 
 
 def get_Neumann_entropy(
-    MPS: list[npt.NDArray]
+    MPS: list[npt.NDArray],
+    bk: Backend = Backend('auto')
 ) -> npt.NDArray:
     
     """
@@ -212,55 +214,54 @@ def get_Neumann_entropy(
     Neumann_entropy = []
     
     for it in range(len(MPS)-1):
-        site_canonical = site_canonical_MPS(MPS, loc=it)
+        site_canonical = site_canonical_MPS(MPS, loc=it, bk=bk)
         _, _, sigma = site_to_bond_canonical_MPS(
             orthogonality_center=site_canonical[it],
             isometry=site_canonical[it+1],
             dirc = "right",
+            bk=bk
         )
-        
-        # print(f"{sigma=}")
         
         Neumann_entropy.append(get_entropy(sigma))
 
-    Neumann_entropy = np.array(Neumann_entropy)
+    Neumann_entropy = bk.array(Neumann_entropy)
     
     return Neumann_entropy
 
 
-def left_gauge(gamma, Lambda):
+def left_gauge(gamma, Lambda, bk):
     
     assert len(gamma.shape) == 3
     assert len(Lambda.shape) == 1
     
     return Contract(
             "bid,cjd,ba,ac->ij", gamma, gamma.conj(),
-            np.diag(Lambda), np.diag(Lambda)
+            bk.diag(Lambda), bk.diag(Lambda)
         )
 
 
-def right_gauge(gamma, Lambda):
+def right_gauge(gamma, Lambda, bk):
     
     assert len(gamma.shape) == 3
     assert len(Lambda.shape) == 1
     
     return Contract(
             "iad,jcd,ab,bc->ij", gamma, gamma.conj(), 
-            np.diag(Lambda), np.diag(Lambda)
+            bk.diag(Lambda), bk.diag(Lambda)
         )
 
 
-def scale_inv_id(approx):
+def scale_inv_id(approx, bk):
     
-    id = np.identity(approx.shape[0])
+    id = bk.identity(approx.shape[0])
     
     tensor = approx/np.trace(approx)-id/np.trace(id)
-    _, S, _ = SVD(tensor)
+    _, S, _ = SVD(tensor, bk=bk)
     
     return np.sum(S)
 
 
-def check_mps(MPS: list[npt.NDArray]):
+def check_mps(MPS: list[npt.NDArray], bk: Backend = Backend('auto')):
     
     len_MPS = len(MPS)
     
@@ -271,47 +272,45 @@ def check_mps(MPS: list[npt.NDArray]):
 
 
 def find_site_loc(
-    site_canonical: list[npt.NDArray], tol: float = 1e-8
+    site_canonical: list[npt.NDArray], tol: float = 1e-8,
+    bk: Backend = Backend('auto')
 ) -> int:
     
     for i, site in enumerate(site_canonical):        
-        if left_isometry(site) > tol and right_isometry(site) > tol and check_site_canonical(site_canonical, i) < tol:
+        if left_isometry(site, bk) > tol and right_isometry(site, bk) > tol and check_site_canonical(site_canonical, i, bk) < tol:
             return i
     
     return None
 
 
 def check_site_canonical(
-    site_canonical: list[npt.NDArray], loc: int
+    site_canonical: list[npt.NDArray], loc: int,
+    bk: Backend = Backend('auto')
 ) -> float:
     
     non_isometry_max = 0.0
     
     for i, site in enumerate(site_canonical):        
         if i < loc:
-            val = left_isometry(site)
+            val = left_isometry(site, bk)
             if val > non_isometry_max:
                 non_isometry_max = val
-                # print(f"Not site canonical\nsite {i} left isometry: {left_isometry(site)=}")
-                # return False
         
         elif i > loc:
-            val = right_isometry(site)
+            val = right_isometry(site, bk)
             if val > non_isometry_max:
                 non_isometry_max = val
-                # print(f"Not site canonical\nsite {i} right isometry: {right_isometry(site)=}")
-                # return False
     
     return non_isometry_max
 
 
 def get_only_isometry(
     site_canonical: list[npt.NDArray], loc1: int | None = None, loc2: int | None = None,
+    bk: Backend = Backend('auto')
 ) -> list[npt.NDArray]:
     
     if loc1 == None:
-        loc1 = find_site_loc(site_canonical)
-        # print(f"{loc=}")
+        loc1 = find_site_loc(site_canonical, bk=bk)
     
     only_isometry = []
     
@@ -327,113 +326,138 @@ def get_only_isometry(
 
 
 def move_site_left(
-    site_canonical: list[npt.NDArray], loc: int | None = None
+    site_canonical: list[npt.NDArray], loc: int | None = None,
+    bk: Backend = Backend('auto')
 ) -> list[npt.NDArray]:
     
     if loc == None:
-        loc = find_site_loc(site_canonical)
-        # print(f"{loc=}")
+        loc = find_site_loc(site_canonical, bk=bk)
     
     assert loc < len(site_canonical), f"{loc=} >= {len(site_canonical)=}"
     assert loc > 0, f"{loc=} <= 0"
     
     temp = []    
     for site in site_canonical:
-        temp.append(deepcopy(site))
+        temp.append(bk.to_device(deepcopy(site)))
     
     current = temp[loc]
     left = temp[loc-1]
     
-    matrix = current.reshape(
-        current.shape[0], current.shape[1] * current.shape[2])
+    matrix = bk.reshape(current, (current.shape[0], current.shape[1] * current.shape[2]))
     U, S, Vh = SVD(matrix)
     
-    temp[loc] = Vh.reshape(
-        -1, current.shape[1], current.shape[2])
-    temp[loc-1] = Contract(
-        "iak,ab,bj->ijk", left, U, np.diag(S)
-    )
+    temp[loc] = bk.reshape(Vh, (-1, current.shape[1], current.shape[2]))
+    temp[loc-1] = Contract("iak,ab,bj->ijk", left, U, bk.diag(S), bk=bk)
     
-    assert right_isometry(temp[loc]) < 1.e-6, f"Move left error, {right_isometry(temp[loc])=}"
+    assert right_isometry(temp[loc], bk) < 1.e-6, f"Move left error, {right_isometry(temp[loc], bk)=}"
     
     return temp
     
     
 def move_site_right(
-    site_canonical: list[npt.NDArray], loc: int | None = None
+    site_canonical: list[npt.NDArray], loc: int | None = None,
+    bk: Backend = Backend('auto')
 ) -> list[npt.NDArray]:
     
     if loc == None:
-        loc = find_site_loc(site_canonical)
-        # print(f"{loc=}")
+        loc = find_site_loc(site_canonical, bk=bk)
     
     assert loc < len(site_canonical), f"{loc=} >= {len(site_canonical)=}"
     assert loc < len(site_canonical)-1, f"{loc=} >= {len(site_canonical)-1=}"
     
     temp = []    
     for site in site_canonical:
-        temp.append(deepcopy(site))
+        temp.append(bk.to_device(deepcopy(site)))
         
     current = temp[loc]
     right = temp[loc+1]
     
-    matrix = current.transpose(0, 2, 1).reshape(
-        current.shape[0]*current.shape[2], current.shape[1])
+    matrix = bk.reshape(bk.transpose(current, (0, 2, 1)), (current.shape[0]*current.shape[2], current.shape[1]))
     U, S, Vh = SVD(matrix)
     
-    # print(f"{matrix.shape=} {U.shape=} {S.shape=} {Vh.shape=}")
-    temp[loc] = U.reshape(
-        current.shape[0], current.shape[2], -1
-        ).transpose(0, 2, 1)
-    temp[loc+1] = Contract(
-        "ia,ab,bjk->ijk", np.diag(S), Vh, right
-    )
+    temp[loc] = bk.transpose(bk.reshape(U, (current.shape[0], current.shape[2], -1)), (0, 2, 1))
+    temp[loc+1] = Contract("ia,ab,bjk->ijk", bk.diag(S), Vh, right, bk=bk)
     
-    assert left_isometry(temp[loc]) < 1.e-6, f"Move right error, {left_isometry(temp[loc])=}"
-    
+    assert left_isometry(temp[loc], bk) < 1.e-6, f"Move right error, {left_isometry(temp[loc], bk)=}"
+
     return temp
 
 
-def contract_MPS(MPS: list[npt.NDArray]) -> npt.NDArray:
+def contract_MPS(MPS: list[npt.NDArray], bk: Backend = Backend('auto')) -> npt.NDArray:
     
+    MPS = [bk.to_device(tensor) for tensor in MPS]
     absolute = MPS[0]
     
     for it in range(1, len(MPS)):
-        absolute = Tensordot(absolute, MPS[it], axes=[(1), (0)])
+        absolute = bk.tensordot(absolute, MPS[it], axes=[(1), (0)])
         ord_absolute = len(absolute.shape)
         lst = [i for i in range(ord_absolute)]
-        absolute = absolute.transpose(
-            rearrange_list_by_values(lst, [ord_absolute-2], [1])
-        )
+        absolute = bk.transpose(absolute, rearrange_list_by_values(lst, [ord_absolute-2], [1]))
     
-    absolute = Tensordot(absolute, np.identity(absolute.shape[0]), axes=[(0,1), (0,1)])
+    absolute = bk.tensordot(absolute, bk.identity(absolute.shape[0]), axes=[(0,1), (0,1)])
 
     assert len(absolute.shape) == len(MPS)
 
-    return absolute
+    return bk.to_cpu(absolute) if bk.lib == "torch" else absolute
 
 
-def left_isometry(single_MPS: npt.NDArray) -> float:
+def left_isometry(single_MPS: npt.NDArray, bk: Backend = Backend('auto')) -> float:
     
-    return np.linalg.norm(left_prod_MPS(single_MPS)-np.identity(single_MPS.shape[1]))/np.linalg.norm(np.identity(single_MPS.shape[1]))
+    prod_val = left_prod_MPS(single_MPS, bk)
+    ident_val_shape = single_MPS.shape[1] # As per current code
 
+    # Determine dtype for converting prod_val to backend's array type
+    # Use prod_val's own dtype if it's a valid numerical type, otherwise default to bk.complex
+    prod_val_bk = bk.array(prod_val, dtype=bk.complex)
 
-def right_isometry(single_MPS: npt.NDArray) -> float:
+    # Create identity matrix of the same backend type and matching dtype as prod_val_bk
+    ident_val_bk = bk.identity(ident_val_shape, dtype=prod_val_bk.dtype)
+
+    numerator = bk.norm(prod_val_bk - ident_val_bk)
     
-    return np.linalg.norm(right_prod_MPS(single_MPS)-np.identity(single_MPS.shape[0]))/np.linalg.norm(np.identity(single_MPS.shape[0]))
-
-
-def left_prod_MPS(single_MPS: npt.NDArray) -> npt.NDArray:
+    # Denominator: norm of a consistently typed identity matrix
+    denominator_ident = bk.identity(ident_val_shape, dtype=prod_val_bk.dtype)
+    denominator = bk.norm(denominator_ident)
     
-    return Contract("aib,ajb->ij", single_MPS.conj(), single_MPS)
+    if denominator == 0:
+        # Fallback if norm of identity is zero (e.g., for a 0-dimensional identity)
+        return bk.norm(prod_val_bk - ident_val_bk) 
+    return numerator / denominator
 
 
-def right_prod_MPS(single_MPS: npt.NDArray) -> npt.NDArray:
+def right_isometry(single_MPS: npt.NDArray, bk: Backend = Backend('auto')) -> float:
     
-    return Contract("iab,jab->ij", single_MPS, single_MPS.conj())
+    prod_val = right_prod_MPS(single_MPS, bk)
+    ident_val_shape = single_MPS.shape[0] # As per current code
+
+    # Determine dtype for converting prod_val to backend's array type
+    prod_val_bk = bk.array(prod_val, dtype=bk.complex)
+
+    # Create identity matrix of the same backend type and matching dtype as prod_val_bk
+    ident_val_bk = bk.identity(ident_val_shape, dtype=prod_val_bk.dtype)
+
+    numerator = bk.norm(prod_val_bk - ident_val_bk)
+
+    # Denominator: norm of a consistently typed identity matrix
+    denominator_ident = bk.identity(ident_val_shape, dtype=prod_val_bk.dtype)
+    denominator = bk.norm(denominator_ident)
+    
+    if denominator == 0:
+        return bk.norm(prod_val_bk - ident_val_bk)
+    return numerator / denominator
 
 
-def tensor_to_mps(tensor: npt.NDArray) -> list[npt.NDArray]:
+def left_prod_MPS(single_MPS: npt.NDArray, bk: Backend = Backend('auto')) -> npt.NDArray:
+    
+    return Contract("aib,ajb->ij", bk.conj(single_MPS), single_MPS, bk=bk)
+
+
+def right_prod_MPS(single_MPS: npt.NDArray, bk: Backend = Backend('auto')) -> npt.NDArray:
+    
+    return Contract("iab,jab->ij", single_MPS, bk.conj(single_MPS), bk=bk)
+
+
+def tensor_to_mps(tensor: npt.NDArray, bk: Backend = Backend('auto')) -> list[npt.NDArray]:
     
     """
     0 -- -- 1
@@ -441,8 +465,9 @@ def tensor_to_mps(tensor: npt.NDArray) -> list[npt.NDArray]:
         2
     """
     
+    tensor = bk.to_device(tensor)
     phys_leg_dims = np.array(tensor.shape)
-    remaining_tensor = deepcopy(tensor.reshape(phys_leg_dims[0], -1))
+    remaining_tensor = deepcopy(bk.reshape(tensor, (phys_leg_dims[0], -1)))
     
     MPS = []
     left_leg_dim = 1
@@ -451,28 +476,20 @@ def tensor_to_mps(tensor: npt.NDArray) -> list[npt.NDArray]:
         U, S, Vh = SVD(remaining_tensor, Skeep=1.e-8)
         
         MPS.append(
-            U.reshape(left_leg_dim, phys_leg_dim, U.shape[1]).transpose(0, 2, 1)
+            bk.transpose(bk.reshape(U, (left_leg_dim, phys_leg_dim, U.shape[1])), (0, 2, 1))
         )
         
         left_leg_dim = MPS[it].shape[1]
-        after_tensor = np.diag(S) @ Vh
+        after_tensor = bk.matmul(bk.diag(S), Vh)
         try:
-            remaining_tensor = after_tensor.reshape(
-                left_leg_dim * phys_leg_dims[it+1], -1
-            )
+            remaining_tensor = bk.reshape(after_tensor, (left_leg_dim * phys_leg_dims[it+1], -1))
         except Exception as e:
-            print(e)
-            print(f"{it=}\n{tensor.shape=}\n{left_leg_dim=}\n{phys_leg_dims=}")
-            print(f"{remaining_tensor.shape=}")
-            print(f"{after_tensor.shape=}")
-            print(f"{U.shape=}")
-            print(f"{S.shape=}")
-            print(f"{Vh.shape=}")
-            for it, mps in enumerate(MPS):
-                print(f"{it}, {mps.shape=}")
+            # Minimal error reporting, or consider logging instead of extensive prints
+            print(f"Error during tensor_to_mps at site {it}: {e}")
+            raise # Re-raise the exception after printing minimal info
     
     MPS.append(
-        remaining_tensor.reshape(left_leg_dim, phys_leg_dims[-1], 1).transpose(0, 2, 1)
+        bk.transpose(bk.reshape(remaining_tensor, (left_leg_dim, phys_leg_dims[-1], 1)), (0, 2, 1))
     )
     
     assert MPS[0].shape[0] == 1

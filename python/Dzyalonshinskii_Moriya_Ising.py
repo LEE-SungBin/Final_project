@@ -1,7 +1,7 @@
 import numpy as np
 import numpy.typing as npt
-from copy import deepcopy
-from python.Zippers import MPS_MPS_overlap, MPS_MPO_MPS_overlap
+from typing import List, Optional, Tuple, Union
+from python.Backend import Backend
 
 
 def DM_Ising(
@@ -9,6 +9,7 @@ def DM_Ising(
     J: float = 1.0,
     D: float = 1.0,
     magnetic_field: float = 0.0,
+    bk: Backend = Backend('auto')
 ) -> list[npt.NDArray]:
     
     
@@ -27,17 +28,17 @@ def DM_Ising(
     Hamiltonian = []
     Hamiltonian_shape = [2, 2, 5, 5]
     
-    identity = np.identity(2)
-    S_x = 1 / 2 * np.array([
+    identity = bk.identity(2)
+    S_x = 1 / 2 * bk.array([
         [0, 1],
         [1, 0]
     ]
     )
-    S_y = 1 / 2 * np.array([
+    S_y = 1 / 2 * bk.array([
         [0, -1j],
         [1j, 0]
     ])
-    S_z = 1 / 2 * np.array([
+    S_z = 1 / 2 * bk.array([
         [1, 0],
         [0, -1]
     ])
@@ -46,7 +47,7 @@ def DM_Ising(
     
     for it in range(n_sites):
         
-        MPO = np.zeros(Hamiltonian_shape, dtype=complex)
+        MPO = bk.zeros(Hamiltonian_shape, dtype=complex)
         
         MPO[:,:,0,0] = identity
         MPO[:,:,1,0] = S_z

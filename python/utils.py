@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 # * Self only available after python 3.11
 # from typing import Self
-from typing import Any
+from typing import Any, List, Optional, Tuple, Union
 from dataclasses import dataclass, field, asdict
 import hashlib
 import pickle
@@ -26,6 +26,7 @@ import numpy as np
 import psutil
 import os
 import tracemalloc
+from python.Backend import Backend
 
 
 import numpy as np
@@ -146,7 +147,8 @@ def permute_list(length: int, num1: int, num2: int) -> tuple[list[int], list[int
 
 def reshape_tensor(
     tensor: npt.NDArray,
-    num1: int, num2: int, index_list: list[int]
+    num1: int, num2: int, index_list: list[int],
+    bk: Backend = Backend('auto')
 ):
     """
     tensor: shape[total up, total down, west, south, ...., single up, south, east, north, single down]
@@ -175,7 +177,7 @@ def reshape_tensor(
     transpose_list.insert(2, num2)
     transpose_list.insert(1, num1)
 
-    tensor = tensor.transpose(transpose_list)
+    tensor = bk.transpose(tensor, tuple(transpose_list))
 
     reshape_list = [tensor.shape[0] * tensor.shape[1],
                     tensor.shape[2] * tensor.shape[3]]

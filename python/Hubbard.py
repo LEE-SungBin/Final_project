@@ -3,12 +3,15 @@ import numpy.typing as npt
 from copy import deepcopy
 from python.Zippers import MPS_MPS_overlap, MPS_MPO_MPS_overlap
 from python.Canonical_Form import site_to_bond_canonical_MPS, site_canonical_MPS
+from python.Backend import Backend
+from typing import List, Optional, Tuple, Union
 
 
 def Hubbard_model(
     n_sites: int,
     hopping_t: float,
-    interaction_U: float
+    interaction_U: float,
+    bk: Backend = Backend('auto'),
 ) -> list[npt.NDArray]:
 
     """
@@ -26,14 +29,14 @@ def Hubbard_model(
     Hamiltonian = []
     Hamiltonian_shape = [4, 4, 6, 6]
     
-    identity = np.identity(4)
-    Jordan_Wigner_string = np.diag([1, -1, -1, 1])
+    identity = bk.identity(4)
+    Jordan_Wigner_string = bk.diag([1, -1, -1, 1])
     
-    annihilation_up = np.zeros([4, 4])
+    annihilation_up = bk.zeros([4, 4])
     annihilation_up[0,1] = 1.0
     annihilation_up[2,3] = -1.0
     
-    annihilation_down = np.zeros([4, 4])
+    annihilation_down = bk.zeros([4, 4])
     annihilation_down[0,2] = 1.0
     annihilation_down[1,3] = 1.0
     
@@ -47,7 +50,7 @@ def Hubbard_model(
     
     for it in range(n_sites):
         
-        MPO = np.zeros(Hamiltonian_shape)
+        MPO = bk.zeros(Hamiltonian_shape)
         
         MPO[:,:,0,0] = identity
         MPO[:,:,1,0] = Jordan_Wigner_string @ annihilation_up
@@ -92,14 +95,14 @@ def Hubbard_model_with_filling(
     Hamiltonian = []
     Hamiltonian_shape = [4, 4, 6, 6]
     
-    identity = np.identity(4)
-    Jordan_Wigner_string = np.diag([1, -1, -1, 1])
+    identity = bk.identity(4)
+    Jordan_Wigner_string = bk.diag([1, -1, -1, 1])
     
-    annihilation_up = np.zeros([4, 4])
+    annihilation_up = bk.zeros([4, 4])
     annihilation_up[0,1] = 1.0
     annihilation_up[2,3] = -1.0
     
-    annihilation_down = np.zeros([4, 4])
+    annihilation_down = bk.zeros([4, 4])
     annihilation_down[0,2] = 1.0
     annihilation_down[1,3] = 1.0
     
@@ -112,7 +115,8 @@ def Hubbard_model_with_filling(
     density_down = creation_down @ annihilation_down
     
     for it in range(n_sites):
-        MPO = np.zeros(Hamiltonian_shape)
+        
+        MPO = bk.zeros(Hamiltonian_shape)
         
         MPO[:,:,0,0] = identity
         MPO[:,:,1,0] = Jordan_Wigner_string @ annihilation_up
@@ -163,8 +167,8 @@ def get_filling(
     
     for it, mps in enumerate(MPS):
         
-        MPO = [np.identity(4).reshape(1, 1, 4, 4) for _ in MPS]
-        MPO[it][0,0] = np.diag([0, 1, 1, 2])
+        MPO = [bk.identity(4).reshape(1, 1, 4, 4) for _ in MPS]
+        MPO[it][0,0] = bk.diag([0, 1, 1, 2])
         
         filled = MPS_MPO_MPS_overlap(MPS, MPO, MPS)
         
