@@ -230,6 +230,41 @@ def get_Neumann_entropy(
     return Neumann_entropy
 
 
+def get_Neumann_entropy_from_left_isometry(
+    left_isometry_MPS: list[npt.NDArray],
+    bk: Backend = Backend("auto")
+):
+    
+    length = len(left_isometry_MPS)
+    
+    Neumann_entropy = bk.zeros(length-1)
+    
+    right_Lambda = bk.identity(1)
+    additional_left_idometry = bk.identity(1)
+    
+    for it in range(1, length):
+        
+        loc = length - it
+        
+        left_isometry = deepcopy(left_isometry_MPS[loc])
+        
+        tensor = Contract(
+            "iak,ab,bj->ijk", left_isometry,
+            additional_left_idometry, right_Lambda
+        )
+        
+        matrix = tensor.reshape(tensor.shape[0], -1)
+        
+        U, S, Vh = SVD(matrix, full_SVD=True, bk=bk)
+        
+        Neumann_entropy[loc - 1] = get_entropy(S, bk)
+        
+        right_Lambda = bk.diag(S)
+        additional_left_idometry = U
+    
+    return Neumann_entropy
+
+
 def left_gauge(gamma, Lambda, bk):
     
     assert len(gamma.shape) == 3
