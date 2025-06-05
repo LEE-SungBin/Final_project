@@ -14,7 +14,6 @@ def XXZ_model(
     bk: Backend = Backend('auto'),
 ) -> list[npt.NDArray]:
     
-    
     """
 
     Hamiltonian.shape = [2, 2, 5, 5]
@@ -56,8 +55,8 @@ def XXZ_model(
         MPO[:,:,2,0] = S_minus
         MPO[:,:,3,0] = S_z
         MPO[:,:,4,0] = -1 * magnetic_field * S_z
-        MPO[:,:,4,1] = XY_coupling * S_minus
-        MPO[:,:,4,2] = XY_coupling * S_plus
+        MPO[:,:,4,1] = XY_coupling / 2 * S_minus
+        MPO[:,:,4,2] = XY_coupling / 2 * S_plus
         MPO[:,:,4,3] = ZZ_coupling * S_z
         MPO[:,:,4,4] = identity
         
@@ -198,4 +197,63 @@ def XY_model(
     )
     
     return Hamiltonian
+
+
+def get_spin_z(
+    MPS: list[npt.NDArray],
+    bk: Backend = Backend('auto'),
+):
+    
+    spin_z = []
+    
+    for it, mps in enumerate(MPS):
+        
+        MPO = [bk.identity(2).reshape(1, 1, 2, 2) for _ in MPS]
+        MPO[it][0,0] = 1/2 * bk.diag([1, -1])
+        
+        mag_at_site = MPS_MPO_MPS_overlap(MPS, MPO, MPS, bk=bk)
+        
+        spin_z.append(mag_at_site)
+    
+    spin_z = np.array(spin_z)
+    
+    return spin_z
+
+
+def get_spin_correlations(
+    MPS: list[npt.NDArray],
+    bk: Backend = Backend('auto'),
+):
+    
+    length = len(MPS)
+    
+    avgs = []
+    spin_correlations = [[] for _ in range(length)]
+    
+    for it in range(length):
+        MPO = [bk.identity(2).reshape(1, 1, 2, 2) for _ in MPS]
+        MPO[it][0,0] = 1/2 * bk.diag([1, -1])
+        
+        avg = MPS_MPO_MPS_overlap(MPS, MPO, MPS, bk=bk)
+        avgs.append(avg)
+    
+    avgs = bk.array(avgs)
+    
+    for it1 in range(length):
+        for it2 in np.arange(it1, length):
+            
+            MPO = [bk.identity(2).reshape(1, 1, 2, 2) for _ in MPS]
+            MPO[it1][0,0] = 1/2 * bk.diag([1, -1])
+            MPO[it2][0,0] = 1/2 * bk.diag([1, -1])
+            
+            corr = MPS_MPO_MPS_overlap(MPS, MPO, MPS, bk=bk)
+            
+            spin_correlations[it2-it1].append(corr - avgs[it1] * avgs[it2])
+    
+    for it, corrs in enumerate(spin_correlations):
+        spin_correlations[it] = bk.array(corrs).mean()
+    
+    spin_correlations = bk.array(spin_correlations)
+    
+    return spin_correlations
 

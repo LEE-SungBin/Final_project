@@ -225,4 +225,40 @@ class Backend:
             return vectorized_func
         return self.xp.vectorize(func, otypes=otypes)
     
+    def arange(self, start, stop=None, step=1, dtype=None):
+        """
+        Return evenly spaced values within a given interval.
+        
+        Parameters:
+        - start: Number, start of interval (inclusive).
+        - stop: Number, end of interval (exclusive). If None, start=0, stop=start.
+        - step: Number, spacing between values (default=1).
+        - dtype: Data type of output array (default=None, inferred from inputs).
+        
+        Returns:
+        - Array of evenly spaced values.
+        
+        Examples:
+        >>> bk_arange(3)
+        array([0, 1, 2])
+        >>> bk_arange(1, 5, 0.5)
+        array([1. , 1.5, 2. , 2.5, 3. , 3.5, 4. , 4.5])
+        """
+        if stop is None:
+            stop = start
+            start = 0
+        
+        # Determine number of elements
+        num = int(np.ceil((stop - start) / step))
+        if num < 0:
+            num = 0
+        
+        # Generate array
+        values = start + step * self.xp.arange(num)
+        
+        # Set dtype if specified
+        if dtype is not None:
+            values = values.astype(dtype)
+        
+        return values
     
