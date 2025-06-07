@@ -42,7 +42,12 @@ def SVD(
         Unitary matrix having right singular vectors as rows.
     """
     
-    U, S, Vh = bk.svd(matrix, full_matrices=full_SVD)
+    try:
+        U, S, Vh = bk.svd(matrix, full_matrices=full_SVD)
+    except Exception as e:
+        print(e)
+        
+        U, S, Vh = random_SVD(matrix)
     
     if Nkeep is not None:
         U = U[:, :Nkeep]
