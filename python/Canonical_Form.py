@@ -9,6 +9,7 @@ from python.Zippers import MPS_MPS_overlap
 from python.utils import get_entropy
 from python.Backend import Backend
 
+
 def site_canonical_MPS(
     MPS: list[npt.NDArray[np.complex128]],
     loc: int = 0, Dcut: int | None = None,
@@ -39,7 +40,7 @@ def site_canonical_MPS(
         temp = bk.transpose(matrix, (0,2,1))
         temp = bk.reshape(temp, (-1, matrix.shape[1]))
         
-        U, S, Vh = SVD(temp, Nkeep=Dcut, Skeep=1.e-8)
+        U, S, Vh = SVD(temp, Nkeep=Dcut, Skeep=1.e-8, bk=bk)
         
         copy[it] = bk.transpose(bk.reshape(U, (matrix.shape[0], matrix.shape[2], -1)), (0,2,1))
         prod_left = bk.matmul(bk.diag(S), Vh)
@@ -50,7 +51,7 @@ def site_canonical_MPS(
         matrix = Contract("iak,aj->ijk", copy[it], prod_right, bk=bk)
         temp = bk.reshape(matrix, (matrix.shape[0], -1))
         
-        U, S, Vh = SVD(temp, Nkeep=Dcut, Skeep=1.e-8)
+        U, S, Vh = SVD(temp, Nkeep=Dcut, Skeep=1.e-8, bk=bk)
         
         copy[it] = bk.reshape(Vh, (-1, matrix.shape[1], matrix.shape[2]))
         prod_right = bk.matmul(U, bk.diag(S))
@@ -82,7 +83,7 @@ def site_to_bond_canonical_MPS(
         assert left_isometry(isometry, bk) < tol, print(f"{left_isometry(isometry, bk)=}")    
         
         tensor = bk.reshape(orthogonality_center, (ortho_shape0, ortho_shape1 * ortho_shape2))
-        U, Sigma, Vh = SVD(tensor)
+        U, Sigma, Vh = SVD(tensor, bk=bk)
         
         left_isometry_mps = Contract("iak,aj->ijk", isometry, U, bk=bk)
         right_isometry_mps = bk.reshape(Vh, (-1, ortho_shape1, ortho_shape2))
@@ -97,7 +98,7 @@ def site_to_bond_canonical_MPS(
         assert right_isometry(isometry, bk) < tol, print(f"{right_isometry(isometry, bk)=}")
                 
         tensor = bk.reshape(bk.transpose(orthogonality_center, (0, 2, 1)), (ortho_shape0 * ortho_shape2, ortho_shape1))
-        U, Sigma, Vh = SVD(tensor)
+        U, Sigma, Vh = SVD(tensor, bk=bk)
         
         left_isometry_mps = bk.transpose(bk.reshape(U, (ortho_shape0, ortho_shape2, -1)), (0, 2, 1))
         right_isometry_mps = Contract("ia,ajk->ijk", Vh, isometry, bk=bk)
@@ -107,10 +108,10 @@ def site_to_bond_canonical_MPS(
         assert left_isometry_mps.shape[1] == right_isometry_mps.shape[0]
     
     # Convert back to numpy arrays if needed
-    if bk.lib == "torch":
-        left_isometry_mps = bk.to_cpu(left_isometry_mps)
-        right_isometry_mps = bk.to_cpu(right_isometry_mps)
-        Sigma = bk.to_cpu(Sigma)
+    # if bk.lib == "torch":
+    #     left_isometry_mps = bk.to_cpu(left_isometry_mps)
+    #     right_isometry_mps = bk.to_cpu(right_isometry_mps)
+    #     Sigma = bk.to_cpu(Sigma)
         
     return left_isometry_mps, right_isometry_mps, Sigma
 
@@ -148,7 +149,7 @@ def Gamma_Lambda_MPS(
         matrix = bk.transpose(tensor, (0,2,1)).reshape(
             -1, tensor.shape[1])
 
-        U, S, Vh = SVD(matrix, Skeep=1.e-8, Nkeep=Dcut)
+        U, S, Vh = SVD(matrix, Skeep=1.e-8, Nkeep=Dcut, bk=bk)
         
         if it < len_MPS-1:
             Lambdas[it][1] = S
@@ -219,12 +220,47 @@ def get_Neumann_entropy(
             orthogonality_center=site_canonical[it],
             isometry=site_canonical[it+1],
             dirc = "right",
-            bk=bk
+            bk = bk,
         )
         
-        Neumann_entropy.append(get_entropy(sigma))
+        Neumann_entropy.append(get_entropy(sigma, bk = bk,))
 
     Neumann_entropy = bk.array(Neumann_entropy)
+    
+    return Neumann_entropy
+
+
+def get_Neumann_entropy_from_left_isometry(
+    left_isometry_MPS: list[npt.NDArray],
+    bk: Backend = Backend("auto")
+):
+    
+    length = len(left_isometry_MPS)
+    
+    Neumann_entropy = bk.zeros(length-1)
+    
+    right_Lambda = bk.identity(1)
+    additional_left_idometry = bk.identity(1)
+    
+    for it in range(1, length):
+        
+        loc = length - it
+        
+        left_isometry = deepcopy(left_isometry_MPS[loc])
+        
+        tensor = Contract(
+            "iak,ab,bj->ijk", left_isometry,
+            additional_left_idometry, right_Lambda
+        )
+        
+        matrix = tensor.reshape(tensor.shape[0], -1)
+        
+        U, S, Vh = SVD(matrix, full_SVD=True, bk=bk)
+        
+        Neumann_entropy[loc - 1] = get_entropy(S, bk)
+        
+        right_Lambda = bk.diag(S)
+        additional_left_idometry = U
     
     return Neumann_entropy
 
@@ -344,7 +380,7 @@ def move_site_left(
     left = temp[loc-1]
     
     matrix = bk.reshape(current, (current.shape[0], current.shape[1] * current.shape[2]))
-    U, S, Vh = SVD(matrix)
+    U, S, Vh = SVD(matrix, bk=bk)
     
     temp[loc] = bk.reshape(Vh, (-1, current.shape[1], current.shape[2]))
     temp[loc-1] = Contract("iak,ab,bj->ijk", left, U, bk.diag(S), bk=bk)
@@ -373,7 +409,7 @@ def move_site_right(
     right = temp[loc+1]
     
     matrix = bk.reshape(bk.transpose(current, (0, 2, 1)), (current.shape[0]*current.shape[2], current.shape[1]))
-    U, S, Vh = SVD(matrix)
+    U, S, Vh = SVD(matrix, bk=bk)
     
     temp[loc] = bk.transpose(bk.reshape(U, (current.shape[0], current.shape[2], -1)), (0, 2, 1))
     temp[loc+1] = Contract("ia,ab,bjk->ijk", bk.diag(S), Vh, right, bk=bk)
@@ -473,7 +509,7 @@ def tensor_to_mps(tensor: npt.NDArray, bk: Backend = Backend('auto')) -> list[np
     left_leg_dim = 1
     
     for it, phys_leg_dim in enumerate(phys_leg_dims[:-1]):
-        U, S, Vh = SVD(remaining_tensor, Skeep=1.e-8)
+        U, S, Vh = SVD(remaining_tensor, Skeep=1.e-8, bk=bk)
         
         MPS.append(
             bk.transpose(bk.reshape(U, (left_leg_dim, phys_leg_dim, U.shape[1])), (0, 2, 1))

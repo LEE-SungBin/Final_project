@@ -3,7 +3,7 @@ import numpy.typing as npt
 import sys
 sys.path.append("../..")
 
-from python.utils import round_sig, get_topology, get_pattern, print_traceback
+# from python.utils import round_sig, get_topology, get_pattern, print_traceback
 from python.plot import log_fit
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
@@ -17,7 +17,7 @@ from matplotlib.figure import Figure
 from matplotlib.axes._axes import Axes
 from typing import List, Union
 import pandas as pd
-from python.manage_data import *
+# from python.manage_data import *
 from python.Backend import Backend
 
 

@@ -58,7 +58,7 @@ def random_initialization(
         mps_at_site_it = bk.to_device(tensor)
         temp_matrix = bk.transpose(mps_at_site_it, (0, 2, 1)).reshape(-1, mps_at_site_it.shape[1])
         
-        left_iso, _ = QR(temp_matrix)
+        left_iso, _ = QR(temp_matrix, bk=bk)
         
         mps = bk.transpose(
             left_iso.reshape(
@@ -131,8 +131,11 @@ def Iterative_diagonalization(
         """
         Get the lowest Keep eigvals and its corresponding eigvecs
         """
-        eigvals = eigvals[-Keep:]
-        eigvecs = eigvecs[:, -Keep:]
+        # eigvals = eigvals[-Keep:]
+        # eigvecs = eigvecs[:, -Keep:]
+        
+        eigvals = eigvals[:Keep]
+        eigvecs = eigvecs[:, :Keep]
         
         # Ensure all tensors are in the correct backend type
         eigvecs = bk.to_device(eigvecs)

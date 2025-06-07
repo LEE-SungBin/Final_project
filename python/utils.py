@@ -31,53 +31,59 @@ from python.Backend import Backend
 
 import numpy as np
 
-def round_sig(arr, num_digits=3):
+
+def round_sig(arr, num_digits=3, bk: Backend = Backend('auto')):
     """
     Round an array or a single float/complex number to a specific number of significant digits.
 
-    :param arr: NumPy array of floats, complex numbers, or a single float/complex number
+    :param arr: Array or scalar (float or complex) compatible with the backend (NumPy or PyTorch)
     :param num_digits: Number of significant digits to round to
-    :return: NumPy array or single float/complex number rounded to the specified number of significant digits
+    :param bk: Backend instance for NumPy or PyTorch operations
+    :return: Array or scalar rounded to the specified number of significant digits
     """
 
     def round_single_value(x):
-        if np.isnan(x):
-            return x  # Return NaN as is
-        if np.abs(x) == 0:
-            return type(x)(0)  # Return zero of the same type as x
+        if bk.isfinite(x) == False:
+            return x
+        
+        if bk.abs(x) == 0:
+            return bk.array(0, dtype=x.dtype if hasattr(x, 'dtype') else None)
+        
+        # Check if x is complex (for arrays/tensors or scalars)
+        is_complex = hasattr(x, 'dtype') and x.dtype.is_complex if hasattr(x, 'dtype') else isinstance(x, complex)
+        if is_complex:
+            real_part = round_real_or_imag(bk.real(x))
+            imag_part = round_real_or_imag(bk.imag(x))
+            return bk.complex(real_part, imag_part)  # Use the complex method
         else:
-            if np.iscomplex(x):
-                # Handle complex numbers by rounding real and imaginary parts separately
-                real_part = round_real_or_imag(np.real(x))
-                imag_part = round_real_or_imag(np.imag(x))
-                return complex(real_part, imag_part)
-            else:
-                return round_real_or_imag(x)
+            return round_real_or_imag(x)
 
     def round_real_or_imag(x):
-        if np.isnan(x):
-            return x  # Return NaN as is
-        if np.abs(x) == 0:
-            return type(x)(0)  # Return zero of the same type as x
+        if bk.isfinite(x) == False:
+            return x
+        
+        if bk.abs(x) == 0:
+            return bk.array(0, dtype=x.dtype if hasattr(x, 'dtype') else None)
+        
         try:
-            # Determine the factor to scale x to get the first non-zero digit
-            scale = -int(np.floor(np.log10(np.abs(x))))
-            # Offset the scale by the number of significant digits
-            scale += num_digits - 1
-            rounded_value = np.round(x, scale)
-            return type(x)(rounded_value)  # Ensure return type matches input type
-        except OverflowError:
-            return x  # If an overflow error occurs, just return x
+            scale = -bk.floor(bk.log10(bk.abs(x)))
+            scale = scale + (num_digits - 1)
+            rounded_value = bk.round(x, decimals=scale)
+            return bk.array(rounded_value, dtype=x.dtype if hasattr(x, 'dtype') else None)
+        except Exception:
+            return x
 
-    # Check if the input is scalar or array and preserve the type
-    if np.isscalar(arr):
+    arr = bk.to_device(arr)
+
+    if bk.isscalar(arr):
         return round_single_value(arr)
     else:
-        temp = np.array(arr)  # Create an array without forcing type to complex
-        if temp.dtype == complex:
-            vectorized_round = np.vectorize(round_single_value, otypes=[complex])
+        temp = bk.array(arr, dtype=arr.dtype if hasattr(arr, 'dtype') else None)
+        is_complex = temp.dtype.is_complex if hasattr(temp, 'dtype') else False
+        if is_complex:
+            vectorized_round = bk.vectorize(round_single_value, otypes=[bk.complex])
         else:
-            vectorized_round = np.vectorize(round_single_value, otypes=[type(temp.flat[0])])
+            vectorized_round = bk.vectorize(round_single_value, otypes=[temp.dtype if hasattr(temp, 'dtype') else None])
         return vectorized_round(temp)
 
 
@@ -336,14 +342,14 @@ def get_repermutation(lst: list[int]):
     return repermute
 
 
-def get_entropy(Lambdas):
+def get_entropy(Lambdas, bk: Backend = Backend('auto')):
     
     entropy = 0
     
     for Lambda in Lambdas:
         if Lambda < 1.e-8:
             continue
-        entropy += -Lambda**2*np.log2(Lambda**2)
+        entropy += -Lambda**2*bk.log2(Lambda**2)
         
     return entropy
 
